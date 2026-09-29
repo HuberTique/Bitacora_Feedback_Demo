@@ -10,15 +10,9 @@ import type { Persona } from "@/lib/types";
 
 type Tab = { href: string; label: string; roles: ("jefatura" | "asesor")[] };
 
-const TABS: Tab[] = [
-  { href: "/bitacora", label: "Bitácora", roles: ["jefatura", "asesor"] },
-  { href: "/feedbacks", label: "Feedbacks", roles: ["jefatura"] },
-  { href: "/horarios", label: "Horarios", roles: ["jefatura"] },
-  { href: "/requerimientos", label: "Requerimientos", roles: ["jefatura", "asesor"] },
-  { href: "/ranking", label: "Presupuesto y ranking", roles: ["asesor", "jefatura"] },
-  { href: "/asistente", label: "Asistente", roles: ["asesor"] },
-  { href: "/personal", label: "Personal", roles: ["jefatura"] },
-];
+// Versión aislada: un solo módulo (Feedbacks) y un solo usuario (jefatura).
+// Los demás módulos del producto completo quedan suprimidos a propósito.
+const TABS: Tab[] = [{ href: "/feedbacks", label: "Feedbacks", roles: ["jefatura"] }];
 
 export function AppShell({
   persona,

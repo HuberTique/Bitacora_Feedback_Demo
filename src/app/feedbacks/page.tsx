@@ -76,7 +76,7 @@ export default function FeedbacksPage() {
   useEffect(() => {
     if (loading) return;
     if (!session) return router.replace("/login");
-    if (persona && persona.rol !== "jefatura") return router.replace("/bitacora");
+    if (persona && persona.rol !== "jefatura") return router.replace("/feedbacks");
     if (persona?.rol === "jefatura") loadAll();
   }, [loading, session, persona, router, loadAll]);
 

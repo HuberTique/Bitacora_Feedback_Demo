@@ -11,7 +11,7 @@ export default function Home() {
     let alive = true;
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!alive) return;
-      router.replace(session ? "/bitacora" : "/login");
+      router.replace(session ? "/feedbacks" : "/login");
     });
     return () => {
       alive = false;

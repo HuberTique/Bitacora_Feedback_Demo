@@ -21,7 +21,7 @@ export default function LoginPage() {
   // Si ya hay sesión, salir directo a la Bitácora.
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) router.replace("/bitacora");
+      if (session) router.replace("/feedbacks");
     });
   }, [router]);
 
@@ -68,7 +68,7 @@ export default function LoginPage() {
       );
       return;
     }
-    router.replace("/bitacora");
+    router.replace("/feedbacks");
   }
 
   const hint =
