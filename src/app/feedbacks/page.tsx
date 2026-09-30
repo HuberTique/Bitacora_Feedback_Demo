@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
-import { PersonaBuscador } from "@/components/PersonaBuscador";
+import { PersonaBuscador, type IdentidadPersona } from "@/components/PersonaBuscador";
 import { ReglamentoMatrizTab } from "@/components/feedbacks/ReglamentoMatrizTab";
 import {
   ESTADOS_RETARDO,
@@ -714,7 +714,7 @@ function NuevoRetardoModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [personaId, setPersonaId] = useState<string>("");
+  const [identidad, setIdentidad] = useState<IdentidadPersona | null>(null);
   const [tipoId, setTipoId] = useState<string>(tipos[0]?.tipo_id ?? "");
   const [fecha, setFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [minutos, setMinutos] = useState<string>("10");
@@ -727,15 +727,20 @@ function NuevoRetardoModal({
 
   const tipo = tipos.find((t) => t.tipo_id === tipoId);
 
-  // Preview escalation whenever (persona, tipo, fecha) change
+  // Preview de la escalación. Si es persona nueva, no existe historial
+  // posible todavía — es la primera vez por definición, sin llamar al RPC.
   useEffect(() => {
-    if (!personaId || !tipoId || !fecha) {
+    if (!identidad || !tipoId || !fecha) {
       setPreview(null);
+      return;
+    }
+    if (identidad.tipo === "nueva") {
+      setPreview({ ocurrencia: 1, accion: tipo?.ladder[0] ?? "" });
       return;
     }
     let alive = true;
     supabase
-      .rpc("compute_ocurrencia", { p_persona_id: personaId, p_tipo_id: tipoId, p_fecha: fecha })
+      .rpc("compute_ocurrencia", { p_persona_id: identidad.personaId, p_tipo_id: tipoId, p_fecha: fecha })
       .then(({ data, error }) => {
         if (!alive) return;
         if (error) {
@@ -750,12 +755,12 @@ function NuevoRetardoModal({
     return () => {
       alive = false;
     };
-  }, [personaId, tipoId, fecha]);
+  }, [identidad, tipoId, fecha, tipo]);
 
   async function save() {
     setError(null);
-    if (!personaId || !tipoId || !fecha || !preview) {
-      setError("Completa persona, tipo y fecha.");
+    if (!identidad || !tipoId || !fecha || !preview) {
+      setError("Completa la persona (CM y nombre), tipo y fecha.");
       return;
     }
     if (tipo?.requiere_minutos && (!minutos || Number.isNaN(Number(minutos)))) {
@@ -767,6 +772,33 @@ function NuevoRetardoModal({
       return;
     }
     setSaving(true);
+
+    let personaId: string;
+    if (identidad.tipo === "existente") {
+      personaId = identidad.personaId;
+    } else {
+      // Primera vez que aparece esta persona — se da de alta aquí mismo,
+      // no hay una pantalla de Personal aparte en este módulo.
+      const { data: nueva, error: errPersona } = await supabase
+        .from("personal")
+        .insert({
+          nombre: identidad.nombre,
+          codigo: identidad.cm,
+          cedula: identidad.cedula,
+          cargo: "—",
+          rol: "asesor",
+          activo: true,
+        })
+        .select("id")
+        .single();
+      if (errPersona || !nueva) {
+        setSaving(false);
+        setError(errPersona?.message ?? "No pude registrar a la persona.");
+        return;
+      }
+      personaId = nueva.id;
+    }
+
     const { error } = await supabase.from("retardos").insert({
       persona_id: personaId,
       tipo_id: tipoId,
@@ -792,7 +824,7 @@ function NuevoRetardoModal({
     <Modal onClose={onClose} title="Registrar falta">
       <div className="grid grid-cols-2 gap-3">
         <Field label="Persona" full>
-          <PersonaBuscador roster={roster} value={personaId} onChange={setPersonaId} />
+          <PersonaBuscador roster={roster} value={identidad} onChange={setIdentidad} />
         </Field>
         <Field label="Tipo de falta" full>
           <select
@@ -1902,7 +1934,7 @@ function ReconocimientoModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [personaId, setPersonaId] = useState<string>("");
+  const [identidad, setIdentidad] = useState<IdentidadPersona | null>(null);
   const [fecha, setFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [motivo, setMotivo] = useState("");
   const [texto, setTexto] = useState("");
@@ -1910,7 +1942,10 @@ function ReconocimientoModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const colaboradorNombre = roster.find((p) => p.id === personaId)?.nombre ?? "";
+  const colaboradorNombre =
+    identidad?.tipo === "existente"
+      ? roster.find((p) => p.id === identidad.personaId)?.nombre ?? ""
+      : identidad?.nombre ?? "";
 
   async function generarIA() {
     setError(null);
@@ -1933,8 +1968,8 @@ function ReconocimientoModal({
 
   async function guardar() {
     setError(null);
-    if (!personaId || !fecha || !motivo.trim()) {
-      setError("Completa persona, fecha y motivo.");
+    if (!identidad || !fecha || !motivo.trim()) {
+      setError("Completa la persona (CM y nombre), fecha y motivo.");
       return;
     }
     if (!texto.trim()) {
@@ -1942,6 +1977,31 @@ function ReconocimientoModal({
       return;
     }
     setSaving(true);
+
+    let personaId: string;
+    if (identidad.tipo === "existente") {
+      personaId = identidad.personaId;
+    } else {
+      const { data: nueva, error: errPersona } = await supabase
+        .from("personal")
+        .insert({
+          nombre: identidad.nombre,
+          codigo: identidad.cm,
+          cedula: identidad.cedula,
+          cargo: "—",
+          rol: "asesor",
+          activo: true,
+        })
+        .select("id")
+        .single();
+      if (errPersona || !nueva) {
+        setSaving(false);
+        setError(errPersona?.message ?? "No pude registrar a la persona.");
+        return;
+      }
+      personaId = nueva.id;
+    }
+
     const { error } = await supabase.from("reconocimientos").insert({
       persona_id: personaId,
       fecha,
@@ -1966,7 +2026,7 @@ function ReconocimientoModal({
       </p>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <Field label="Persona" full>
-          <PersonaBuscador roster={roster} value={personaId} onChange={setPersonaId} />
+          <PersonaBuscador roster={roster} value={identidad} onChange={setIdentidad} />
         </Field>
         <Field label="Fecha">
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}

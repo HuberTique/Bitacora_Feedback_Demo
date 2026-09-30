@@ -13,11 +13,22 @@ const normalizar = (v: string) =>
     .trim();
 
 /**
- * Identificación de persona con DOS datos obligatorios — CM y nombre
- * completo — igual de estricta que la lectura de imágenes (que también
- * extrae CM + nombre). El CM manda: si el nombre se escribe distinto pero
- * el CM coincide con alguien de Personal, igual se resuelve esa persona
- * (con aviso), para no perder el historial por un error de tipeo.
+ * Identidad resuelta por el buscador: una persona ya registrada, o una
+ * nueva (aún no existe en `personal` — este módulo no tiene una pantalla
+ * de Personal aparte, así que la única forma de que alguien exista es
+ * siendo el sujeto de un feedback/reconocimiento). El padre decide cuándo
+ * crear la fila (normalmente al guardar, no mientras se escribe).
+ */
+export type IdentidadPersona =
+  | { tipo: "existente"; personaId: string }
+  | { tipo: "nueva"; cm: string; nombre: string; cedula: string | null };
+
+/**
+ * Identificación con DOS datos obligatorios — CM y nombre completo — igual
+ * de estricta que la lectura de imágenes. El CM manda: si el nombre se
+ * escribe distinto pero el CM coincide con alguien ya registrado, igual se
+ * resuelve esa persona (con aviso). Si el CM no coincide con nadie, no es
+ * un error — es una persona nueva, que se crea al guardar.
  */
 export function PersonaBuscador({
   roster,
@@ -25,16 +36,16 @@ export function PersonaBuscador({
   onChange,
 }: {
   roster: RosterPublico[];
-  value: string; // persona_id resuelto, "" si aún no hay uno válido
-  onChange: (personaId: string) => void;
+  value: IdentidadPersona | null;
+  onChange: (identidad: IdentidadPersona | null) => void;
 }) {
   const [cm, setCm] = useState("");
   const [nombre, setNombre] = useState("");
   const [cedula, setCedula] = useState("");
   const [sugerencias, setSugerencias] = useState<RosterPublico[]>([]);
-  const [manual, setManual] = useState(false); // true tras limpiar una selección ya resuelta
 
-  const seleccionada = !manual ? roster.find((p) => p.id === value) ?? null : null;
+  const seleccionadaExistente =
+    value?.tipo === "existente" ? roster.find((p) => p.id === value.personaId) ?? null : null;
 
   // Sugerencias por nombre mientras se escribe (para autocompletar CM).
   useEffect(() => {
@@ -62,16 +73,19 @@ export function PersonaBuscador({
     return roster.find((p) => p.codigo && soloDigitos(p.codigo) === cmDigits) ?? undefined;
   }, [cm, roster]);
 
-  // Solo se resuelve la persona cuando AMBOS datos están escritos — CM por sí
-  // solo no basta, es la validación cruzada la que da por buena la identidad.
+  // Solo se resuelve algo cuando AMBOS datos están escritos.
   useEffect(() => {
-    if (coincidePorCm && nombre.trim().length > 0) {
-      onChange(coincidePorCm.id);
+    const cmDigits = soloDigitos(cm);
+    const nombreOk = nombre.trim().length > 0;
+    if (coincidePorCm && nombreOk) {
+      onChange({ tipo: "existente", personaId: coincidePorCm.id });
+    } else if (cmDigits.length >= 4 && nombreOk && !coincidePorCm) {
+      onChange({ tipo: "nueva", cm: cmDigits, nombre: nombre.trim(), cedula: cedula.trim() || null });
     } else if (value) {
-      onChange("");
+      onChange(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coincidePorCm, nombre]);
+  }, [coincidePorCm, nombre, cedula, cm]);
 
   function elegirSugerencia(p: RosterPublico) {
     setNombre(p.nombre);
@@ -80,19 +94,31 @@ export function PersonaBuscador({
   }
 
   function cambiar() {
-    setManual(true);
     setCm("");
     setNombre("");
     setCedula("");
-    onChange("");
+    onChange(null);
   }
 
-  if (seleccionada) {
+  if (seleccionadaExistente) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 border border-line rounded-md bg-white text-sm">
-        <span className="font-mono text-xs text-muted">{seleccionada.codigo ?? "sin CM"}</span>
-        <span className="flex-1">{seleccionada.nombre}</span>
-        <span className="text-muted text-xs">{seleccionada.cargo}</span>
+        <span className="font-mono text-xs text-muted">{seleccionadaExistente.codigo ?? "sin CM"}</span>
+        <span className="flex-1">{seleccionadaExistente.nombre}</span>
+        <span className="text-muted text-xs">{seleccionadaExistente.cargo}</span>
+        <button type="button" onClick={cambiar} className="text-muted hover:text-warn text-xs px-1" title="Cambiar persona">
+          ✕
+        </button>
+      </div>
+    );
+  }
+
+  if (value?.tipo === "nueva") {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 border border-operaciones/40 bg-operaciones/5 rounded-md text-sm">
+        <span className="font-mono text-xs text-muted">{value.cm}</span>
+        <span className="flex-1">{value.nombre}</span>
+        <span className="text-[10px] font-semibold text-operaciones uppercase tracking-wider">Nueva</span>
         <button type="button" onClick={cambiar} className="text-muted hover:text-warn text-xs px-1" title="Cambiar persona">
           ✕
         </button>
@@ -115,10 +141,7 @@ export function PersonaBuscador({
             value={cm}
             onChange={(e) => setCm(e.target.value)}
             placeholder="Código de empleado"
-            className={
-              "w-full px-3 py-2 border rounded-md bg-white text-sm " +
-              (cm && !coincidePorCm ? "border-warn-border bg-warn-soft/40" : "border-line")
-            }
+            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
           />
         </div>
         <div>
@@ -159,8 +182,8 @@ export function PersonaBuscador({
         )}
       </div>
 
-      {cm && !coincidePorCm && (
-        <p className="text-[11px] text-warn">Ese CM no está registrado en Personal — revísalo antes de continuar.</p>
+      {cm && soloDigitos(cm).length > 0 && soloDigitos(cm).length < 4 && (
+        <p className="text-[11px] text-muted">El CM se ve muy corto — revísalo.</p>
       )}
       {coincidePorCm && !nombreCoincideConCm && (
         <p className="text-[11px] text-ventas">
@@ -170,6 +193,11 @@ export function PersonaBuscador({
       )}
       {coincidePorCm && nombreCoincideConCm && cm && nombre && (
         <p className="text-[11px] text-operaciones">✓ CM y nombre coinciden con {coincidePorCm.nombre}.</p>
+      )}
+      {!coincidePorCm && soloDigitos(cm).length >= 4 && nombre.trim() && (
+        <p className="text-[11px] text-muted">
+          No hay nadie con ese CM todavía — se registrará como persona nueva al guardar.
+        </p>
       )}
     </div>
   );
