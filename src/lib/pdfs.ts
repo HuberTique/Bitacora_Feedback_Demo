@@ -2,6 +2,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont } from "pdf-lib";
 import { nombreTiendaActual } from "./tienda-config";
+import { assetPath } from "./asset-path";
 import type { FaltaConfig, Persona, Retardo } from "./types";
 
 // Fuentes: pdf-lib no embebe Calibri por defecto; usamos Helvetica que es
@@ -204,8 +205,12 @@ function whiteOut(
 }
 
 async function loadTemplate(path: string): Promise<PDFDocument> {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`No pude cargar la plantilla ${path}: ${res.status}`);
+  // Ruta escrita a mano (no un <Link>/<Image> de Next) — en GitHub Pages hay
+  // que anteponerle el basePath a mano o el fetch da 404 bajo el subpath del
+  // sitio (ver asset-path.ts). En local BASE_PATH es "" y no cambia nada.
+  const url = assetPath(path);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`No pude cargar la plantilla ${url}: ${res.status}`);
   const bytes = await res.arrayBuffer();
   return PDFDocument.load(bytes);
 }
