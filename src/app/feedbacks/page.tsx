@@ -151,7 +151,7 @@ export default function FeedbacksPage() {
       <div className="mx-auto max-w-[1100px] px-4 sm:px-8 py-7 w-full">
         <div className="flex justify-between items-start mb-5 flex-wrap gap-3">
           <div>
-            <h2 className="text-[17px] font-display font-semibold m-0 mb-1">Feedbacks</h2>
+            <h2 className="text-[17px] font-display font-semibold m-0 mb-1">Feedbacks y planes de trabajo</h2>
             <p className="text-muted text-[13px] max-w-2xl">
               Faltas registradas según la matriz vigente. La ocurrencia y acción sugerida
               se calculan automáticamente contra los previos vigentes (últimos 4 meses).

@@ -12,7 +12,7 @@ type Tab = { href: string; label: string; roles: ("jefatura" | "asesor")[] };
 
 // Versión aislada: un solo módulo (Feedbacks) y un solo usuario (jefatura).
 // Los demás módulos del producto completo quedan suprimidos a propósito.
-const TABS: Tab[] = [{ href: "/feedbacks", label: "Feedbacks", roles: ["jefatura"] }];
+const TABS: Tab[] = [{ href: "/feedbacks", label: "Feedbacks y planes de trabajo", roles: ["jefatura"] }];
 
 /** Logo de la empresa; si aún no se cargó ninguno, muestra sus iniciales en un círculo. */
 function LogoEmpresa({ nombre, url }: { nombre: string; url: string | null }) {
