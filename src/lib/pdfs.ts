@@ -218,6 +218,9 @@ async function loadTemplate(path: string): Promise<PDFDocument> {
 // (595.32 × 841.92 pt). Origen pdf-lib: bottom-left. Si al probar quedan
 // desalineadas, ajustar aquí — cada tira "Ajuste:" indica la referencia visual.
 
+/** Un artículo verificado (texto exacto, nunca generado por IA) para el anexo legal. */
+export type ArticuloCitado = { fuente: "RIT" | "CST"; numero: string; titulo: string | null; texto: string };
+
 export async function generarFeedbackPdf(datos: {
   retardo: Retardo;
   persona: Persona;
@@ -236,6 +239,14 @@ export async function generarFeedbackPdf(datos: {
   fechaCierre?: string;          // YYYY-MM-DD opcional
   nombreJefe?: string;
   cedulaJefe?: string;
+  // Modo técnico: anexo aparte (página 2+), nunca se mezcla con la plantilla
+  // oficial de la página 1. El texto de los artículos viene siempre de
+  // reglamento_articulos (verificado), nunca de lo que redacte la IA.
+  fundamento?: string;           // frase corta de la IA citando solo el número
+  articulos?: ArticuloCitado[];
+  accionSugerida?: string;
+  accionAplicada?: string;
+  justificacionAjuste?: string;
 }): Promise<void> {
   const { retardo, persona, jefatura, falta } = datos;
   const pdf = await loadTemplate("/plantillas/formato-feedback.pdf");
@@ -285,9 +296,89 @@ export async function generarFeedbackPdf(datos: {
   drawSafe(page, datos.nombreJefe ?? jefatura.nombre, { x: 328, y: 71, size: 9, font });
   drawSafe(page, datos.cedulaJefe ?? jefatura.cedula ?? "—", { x: 325, y: 60, size: 9, font });
 
+  // Anexo de fundamento legal (modo técnico) — página(s) aparte, nunca
+  // sobre la plantilla oficial, para no arriesgar su diseño impreso.
+  const hayAjuste =
+    datos.accionAplicada != null && datos.accionSugerida != null && datos.accionAplicada !== datos.accionSugerida;
+  if ((datos.articulos && datos.articulos.length > 0) || hayAjuste) {
+    dibujarAnexoLegal(pdf, font, bold, {
+      fundamento: datos.fundamento ?? "",
+      articulos: datos.articulos ?? [],
+      accionSugerida: datos.accionSugerida,
+      accionAplicada: datos.accionAplicada,
+      justificacionAjuste: datos.justificacionAjuste,
+    });
+  }
+
   const bytes = await pdf.save();
   const fileSafe = persona.nombre.replace(/\s+/g, "_");
   downloadBlob(new Blob([bytes as BlobPart], { type: "application/pdf" }), `Feedback_${fileSafe}_${retardo.fecha}.pdf`);
+}
+
+/**
+ * Anexo — Fundamento legal: página(s) generadas en blanco (no son parte de
+ * la plantilla oficial), con el texto EXACTO de cada artículo verificado en
+ * `reglamento_articulos`. La IA nunca escribe este texto — solo el número
+ * que aparece en `fundamento`, que se muestra aparte como referencia rápida.
+ */
+function dibujarAnexoLegal(
+  pdf: PDFDocument,
+  font: PDFFont,
+  bold: PDFFont,
+  datos: {
+    fundamento: string;
+    articulos: ArticuloCitado[];
+    accionSugerida?: string;
+    accionAplicada?: string;
+    justificacionAjuste?: string;
+  },
+): void {
+  const PAGE_W = 595.32;
+  const PAGE_H = 841.92;
+  const MARGIN = 50;
+  const maxWidth = PAGE_W - MARGIN * 2;
+  let page = pdf.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - 60;
+
+  const nuevaPaginaSiHaceFalta = (espacioNecesario: number) => {
+    if (y - espacioNecesario < 60) {
+      page = pdf.addPage([PAGE_W, PAGE_H]);
+      y = PAGE_H - 60;
+    }
+  };
+
+  page.drawText("Anexo - Fundamento legal", { x: MARGIN, y, size: 14, font: bold, color: rgb(0, 0, 0) });
+  y -= 22;
+  if (datos.fundamento) {
+    drawWrapped(page, datos.fundamento, { x: MARGIN, y, size: 9.5, font, maxWidth, lineHeight: 12, maxLines: 4 });
+    y -= 12 * Math.min(4, wrapText(sanitizeWinAnsi(datos.fundamento), font, 9.5, maxWidth).length) + 14;
+  }
+
+  if (datos.accionAplicada != null && datos.accionSugerida != null && datos.accionAplicada !== datos.accionSugerida) {
+    nuevaPaginaSiHaceFalta(70);
+    page.drawText("Ajuste de la medida (parágrafo del Artículo 64 del R.I.T.)", {
+      x: MARGIN, y, size: 10.5, font: bold, color: rgb(0, 0, 0),
+    });
+    y -= 16;
+    const texto = `La escalera sugiere "${datos.accionSugerida}"; se aplica "${datos.accionAplicada}". Justificación: ${
+      datos.justificacionAjuste?.trim() || "(sin detalle)"
+    }`;
+    const lineas = wrapText(sanitizeWinAnsi(texto), font, 9.5, maxWidth);
+    drawWrapped(page, texto, { x: MARGIN, y, size: 9.5, font, maxWidth, lineHeight: 12, maxLines: lineas.length });
+    y -= 12 * lineas.length + 20;
+  }
+
+  for (const art of datos.articulos) {
+    const encabezado = `${art.fuente === "RIT" ? "Reglamento Interno de Trabajo" : "Código Sustantivo del Trabajo"} — Artículo ${art.numero}${art.titulo ? ` (${art.titulo})` : ""}`;
+    const encLineas = wrapText(sanitizeWinAnsi(encabezado), bold, 10, maxWidth);
+    const cuerpoLineas = wrapText(sanitizeWinAnsi(art.texto), font, 9.5, maxWidth);
+    nuevaPaginaSiHaceFalta(encLineas.length * 13 + cuerpoLineas.length * 12 + 20);
+
+    drawWrapped(page, encabezado, { x: MARGIN, y, size: 10, font: bold, maxWidth, lineHeight: 13, maxLines: encLineas.length });
+    y -= 13 * encLineas.length + 4;
+    drawWrapped(page, art.texto, { x: MARGIN, y, size: 9.5, font, maxWidth, lineHeight: 12, maxLines: cuerpoLineas.length });
+    y -= 12 * cuerpoLineas.length + 18;
+  }
 }
 
 // ================================================================
@@ -374,4 +465,62 @@ export async function generarPlanTrabajoPdf(datos: DatosPlanTrabajo): Promise<vo
   const bytes = await pdf.save();
   const fileSafe = datos.jefatura.nombre.replace(/\s+/g, "_");
   downloadBlob(new Blob([bytes as BlobPart], { type: "application/pdf" }), `Plan_Trabajo_${fileSafe}_${datos.fecha}.pdf`);
+}
+
+// ================================================================
+// RECONOCIMIENTO (feedback positivo)
+// ================================================================
+//
+// No hay plantilla oficial preimpresa para esto (es un flujo nuevo, separado
+// de las faltas) — se genera un documento limpio desde cero.
+
+export async function generarReconocimientoPdf(datos: {
+  persona: Persona;
+  jefatura: Persona;
+  fecha: string; // YYYY-MM-DD
+  motivo: string;
+  texto: string;
+  empresaNombre?: string;
+}): Promise<void> {
+  const PAGE_W = 595.32;
+  const PAGE_H = 841.92;
+  const MARGIN = 60;
+  const maxWidth = PAGE_W - MARGIN * 2;
+
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([PAGE_W, PAGE_H]);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  let y = PAGE_H - 90;
+  drawSafe(page, datos.empresaNombre ?? nombreTiendaActual(), { x: MARGIN, y, size: 10, font });
+  y -= 14;
+  drawSafe(page, fmtDateHuman(datos.fecha), { x: MARGIN, y, size: 10, font });
+  y -= 40;
+
+  page.drawText("Reconocimiento", { x: MARGIN, y, size: 20, font: bold, color: rgb(0.13, 0.2, 0.33) });
+  y -= 30;
+
+  drawSafe(page, `Para: ${datos.persona.nombre}`, { x: MARGIN, y, size: 11, font: bold });
+  y -= 18;
+  drawSafe(page, `Motivo: ${datos.motivo}`, { x: MARGIN, y, size: 10, font });
+  y -= 34;
+
+  const lineas = wrapText(sanitizeWinAnsi(datos.texto), font, 11, maxWidth);
+  drawWrapped(page, datos.texto, { x: MARGIN, y, size: 11, font, maxWidth, lineHeight: 16, maxLines: lineas.length });
+  y -= 16 * lineas.length + 60;
+
+  // Firmas
+  page.drawLine({ start: { x: MARGIN, y }, end: { x: MARGIN + 200, y }, thickness: 0.8, color: rgb(0, 0, 0) });
+  page.drawLine({ start: { x: MARGIN + 260, y }, end: { x: MARGIN + 460, y }, thickness: 0.8, color: rgb(0, 0, 0) });
+  y -= 14;
+  drawSafe(page, datos.persona.nombre, { x: MARGIN, y, size: 9, font });
+  drawSafe(page, datos.jefatura.nombre, { x: MARGIN + 260, y, size: 9, font });
+  y -= 12;
+  drawSafe(page, "Colaborador", { x: MARGIN, y, size: 8, font });
+  drawSafe(page, datos.jefatura.cargo || "Jefatura", { x: MARGIN + 260, y, size: 8, font });
+
+  const bytes = await pdf.save();
+  const fileSafe = datos.persona.nombre.replace(/\s+/g, "_");
+  downloadBlob(new Blob([bytes as BlobPart], { type: "application/pdf" }), `Reconocimiento_${fileSafe}_${datos.fecha}.pdf`);
 }

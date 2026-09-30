@@ -8,8 +8,10 @@ import { AppShell } from "@/components/AppShell";
 import {
   ESTADOS_RETARDO,
   labelEstadoRetardo,
+  type ArticuloReglamento,
   type EstadoRetardo,
   type FaltaConfig,
+  type Reconocimiento,
   type Retardo,
   type RosterPublico,
 } from "@/lib/types";
@@ -18,9 +20,18 @@ import {
   resizeImage,
   tipoIdPorMinutos,
 } from "@/lib/imagenIA";
-import { generarFeedbackPdf, generarPlanTrabajoPdf, type CompromisoRow } from "@/lib/pdfs";
+import {
+  generarFeedbackPdf,
+  generarPlanTrabajoPdf,
+  generarReconocimientoPdf,
+  type ArticuloCitado,
+  type CompromisoRow,
+} from "@/lib/pdfs";
 import { useTienda } from "@/lib/tienda-config";
 import type { Persona } from "@/lib/types";
+
+/** Modo de redacción del feedback: técnico cita el reglamento, básico no. */
+type ModoFeedback = "basico" | "tecnico";
 
 type DetectedRow = {
   nombreDetectado: string;
@@ -37,8 +48,11 @@ export default function FeedbacksPage() {
   const [retardos, setRetardos] = useState<Retardo[]>([]);
   const [tipos, setTipos] = useState<FaltaConfig[]>([]);
   const [roster, setRoster] = useState<RosterPublico[]>([]);
+  const [articulos, setArticulos] = useState<ArticuloReglamento[]>([]);
+  const [reconocimientos, setReconocimientos] = useState<Reconocimiento[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingReconocimiento, setCreatingReconocimiento] = useState(false);
   const [fPersona, setFPersona] = useState<string>("");
   const [fTipo, setFTipo] = useState<string>("");
   const [fEstado, setFEstado] = useState<"" | EstadoRetardo>("");
@@ -59,18 +73,24 @@ export default function FeedbacksPage() {
   >(null);
 
   const loadAll = useCallback(async () => {
-    const [rRes, tRes, pRes] = await Promise.all([
+    const [rRes, tRes, pRes, aRes, cRes] = await Promise.all([
       supabase.from("retardos").select("*").order("fecha", { ascending: false }),
       supabase.from("faltas_config").select("*").order("posicion"),
       supabase.rpc("roster_publico"),
+      supabase.from("reglamento_articulos").select("*"),
+      supabase.from("reconocimientos").select("*").order("fecha", { ascending: false }),
     ]);
     if (rRes.error) return setFetchError(rRes.error.message);
     if (tRes.error) return setFetchError(tRes.error.message);
     if (pRes.error) return setFetchError(pRes.error.message);
+    if (aRes.error) return setFetchError(aRes.error.message);
+    if (cRes.error) return setFetchError(cRes.error.message);
     setFetchError(null);
     setRetardos((rRes.data as Retardo[] | null) ?? []);
     setTipos((tRes.data as FaltaConfig[] | null) ?? []);
     setRoster((pRes.data as RosterPublico[] | null) ?? []);
+    setArticulos((aRes.data as ArticuloReglamento[] | null) ?? []);
+    setReconocimientos((cRes.data as Reconocimiento[] | null) ?? []);
   }, []);
 
   useEffect(() => {
@@ -85,6 +105,7 @@ export default function FeedbacksPage() {
     const ch = supabase
       .channel("retardos-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "retardos" }, () => loadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "reconocimientos" }, () => loadAll())
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
@@ -146,6 +167,47 @@ export default function FeedbacksPage() {
     loadAll();
   }
 
+  async function toggleEstadoReconocimiento(r: Reconocimiento) {
+    const nuevo: EstadoRetardo = r.estado === "pendiente" ? "realizada" : "pendiente";
+    const { error } = await supabase.from("reconocimientos").update({ estado: nuevo }).eq("id", r.id);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    loadAll();
+  }
+
+  async function eliminarReconocimiento(r: Reconocimiento) {
+    if (!confirm(`¿Eliminar el reconocimiento de ${nombreDe(r.persona_id)}?`)) return;
+    const { error } = await supabase.from("reconocimientos").delete().eq("id", r.id);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    loadAll();
+  }
+
+  async function handleDescargarReconocimiento(r: Reconocimiento) {
+    if (!persona) return;
+    try {
+      const { data: personaCompleta, error } = await supabase
+        .from("personal")
+        .select("*")
+        .eq("id", r.persona_id)
+        .single();
+      if (error || !personaCompleta) throw new Error(error?.message ?? "No pude cargar los datos de la persona.");
+      await generarReconocimientoPdf({
+        persona: personaCompleta as Persona,
+        jefatura: persona,
+        fecha: r.fecha,
+        motivo: r.motivo,
+        texto: r.texto,
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <AppShell persona={persona}>
       <div className="mx-auto max-w-[1100px] px-4 sm:px-8 py-7 w-full">
@@ -182,6 +244,13 @@ export default function FeedbacksPage() {
               className="px-3 py-2 rounded-md border border-line bg-white text-sm hover:bg-paper transition-colors"
             >
               📋 Plan de trabajo
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreatingReconocimiento(true)}
+              className="px-3 py-2 rounded-md border border-operaciones text-operaciones bg-white text-sm font-semibold hover:bg-operaciones/5 transition-colors"
+            >
+              ⭐ Reconocimiento
             </button>
             <button
               type="button"
@@ -253,6 +322,7 @@ export default function FeedbacksPage() {
                   <Th>Min.</Th>
                   <Th>Ocurr.</Th>
                   <Th>Acción sugerida</Th>
+                  <Th>Excusa</Th>
                   <Th>Estado</Th>
                   <th />
                 </tr>
@@ -274,6 +344,23 @@ export default function FeedbacksPage() {
                     <td className="py-3 pr-3 font-mono text-xs">{r.ocurrencia}</td>
                     <td className="py-3 pr-3">
                       <span className="text-xs font-semibold text-brand">{r.accion}</span>
+                      {r.accion_aplicada && r.accion_aplicada !== r.accion && (
+                        <div className="text-[10.5px] text-ventas mt-0.5" title={r.justificacion_ajuste ?? ""}>
+                          Ajustada a: <strong>{r.accion_aplicada}</strong>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 pr-3">
+                      {r.excusa_suficiente ? (
+                        <span
+                          className="text-[10.5px] font-semibold text-operaciones uppercase tracking-wider"
+                          title={r.detalle_excusa ?? ""}
+                        >
+                          Suficiente
+                        </span>
+                      ) : (
+                        <span className="text-[10.5px] text-muted uppercase tracking-wider">—</span>
+                      )}
                     </td>
                     <td className="py-3 pr-3">
                       <EstadoTag estado={r.estado} />
@@ -309,7 +396,80 @@ export default function FeedbacksPage() {
             </table>
           </div>
         )}
+
+        <div className="mt-8 mb-3">
+          <h3 className="text-[15px] font-display font-semibold m-0 mb-1">Reconocimientos</h3>
+          <p className="text-muted text-[13px]">
+            Feedback positivo — no pasa por la matriz de faltas ni tiene fundamento legal.
+          </p>
+        </div>
+        {reconocimientos.length === 0 ? (
+          <div className="bg-panel border border-line rounded-[10px] p-6 text-center text-muted text-sm">
+            Aún no hay reconocimientos registrados.
+          </div>
+        ) : (
+          <div className="bg-panel border border-line rounded-[10px] p-5 overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead>
+                <tr className="text-left border-b border-line">
+                  <Th>Persona</Th>
+                  <Th>Motivo</Th>
+                  <Th>Fecha</Th>
+                  <Th>Estado</Th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {reconocimientos.map((r) => (
+                  <tr key={r.id} className="border-b border-line/60 last:border-0 align-top">
+                    <td className="py-3 pr-3">{nombreDe(r.persona_id)}</td>
+                    <td className="py-3 pr-3">{r.motivo}</td>
+                    <td className="py-3 pr-3 whitespace-nowrap">{fmtDate(r.fecha)}</td>
+                    <td className="py-3 pr-3">
+                      <EstadoTag estado={r.estado} />
+                    </td>
+                    <td className="py-3 text-right whitespace-nowrap space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => handleDescargarReconocimiento(r)}
+                        className="text-xs px-2 py-1 border border-operaciones text-operaciones rounded bg-white hover:bg-operaciones/5"
+                      >
+                        📄 PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleEstadoReconocimiento(r)}
+                        className="text-xs px-2 py-1 border border-line rounded bg-white hover:bg-paper"
+                      >
+                        {r.estado === "pendiente" ? "Marcar realizada" : "Reabrir"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => eliminarReconocimiento(r)}
+                        className="text-xs px-2 py-1 border border-warn text-warn rounded bg-white hover:bg-warn-soft"
+                      >
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {creatingReconocimiento && (
+        <ReconocimientoModal
+          persona={persona}
+          roster={roster.filter((p) => p.rol === "asesor" || p.rol === "jefatura")}
+          onClose={() => setCreatingReconocimiento(false)}
+          onSaved={() => {
+            setCreatingReconocimiento(false);
+            loadAll();
+          }}
+        />
+      )}
 
       {creating && (
         <NuevoRetardoModal
@@ -336,6 +496,7 @@ export default function FeedbacksPage() {
         <FeedbackEditModal
           {...editingFeedback}
           jefatura={persona}
+          articulos={articulos}
           onClose={() => setEditingFeedback(null)}
         />
       )}
@@ -505,6 +666,8 @@ function NuevoRetardoModal({
   const [fecha, setFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [minutos, setMinutos] = useState<string>("10");
   const [obs, setObs] = useState("");
+  const [excusaSuficiente, setExcusaSuficiente] = useState(false);
+  const [detalleExcusa, setDetalleExcusa] = useState("");
   const [preview, setPreview] = useState<{ ocurrencia: number; accion: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -557,6 +720,8 @@ function NuevoRetardoModal({
       accion: preview.accion,
       estado: "pendiente",
       registrado_por: persona.id,
+      excusa_suficiente: excusaSuficiente,
+      detalle_excusa: excusaSuficiente ? detalleExcusa.trim() || null : null,
     });
     setSaving(false);
     if (error) {
@@ -622,6 +787,29 @@ function NuevoRetardoModal({
             placeholder="Detalle para redactar el feedback formal..."
             className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
           />
+        </Field>
+        <Field label=" " full>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={excusaSuficiente}
+              onChange={(e) => setExcusaSuficiente(e.target.checked)}
+            />
+            El colaborador presentó una excusa que consideras suficiente
+          </label>
+          <p className="text-[11px] text-muted mt-1">
+            Según el Art. 64 del Reglamento Interno, la sanción aplica &quot;sin excusa suficiente&quot;. Si la
+            marcas, esta falta no cuenta para la escalera de sanción — queda solo como seguimiento.
+          </p>
+          {excusaSuficiente && (
+            <textarea
+              value={detalleExcusa}
+              onChange={(e) => setDetalleExcusa(e.target.value)}
+              rows={2}
+              placeholder="¿Cuál fue la excusa?"
+              className="w-full mt-2 px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+            />
+          )}
         </Field>
       </div>
 
@@ -866,19 +1054,21 @@ function RevisionModal({
 
 // ---------- Feedback edit modal (revisar antes de descargar) ----------
 
-type FeedbackIA = { situacion: string; comentarioJefe: string; planAccion: string };
+type FeedbackIA = { situacion: string; comentarioJefe: string; planAccion: string; fundamento?: string };
 
 function FeedbackEditModal({
   retardo,
   persona,
   falta,
   jefatura,
+  articulos,
   onClose,
 }: {
   retardo: Retardo;
   persona: Persona;
   falta: FaltaConfig;
   jefatura: Persona;
+  articulos: ArticuloReglamento[];
   onClose: () => void;
 }) {
   const tienda = useTienda();
@@ -901,6 +1091,26 @@ function FeedbackEditModal({
   const [iaError, setIaError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Modo técnico/básico, excusa y ajuste de la medida (Art. 64 R.I.T. y su parágrafo).
+  const [modo, setModo] = useState<ModoFeedback>("basico");
+  const [excusaSuficiente, setExcusaSuficiente] = useState(retardo.excusa_suficiente);
+  const [detalleExcusa, setDetalleExcusa] = useState(retardo.detalle_excusa ?? "");
+  const [accionAplicada, setAccionAplicada] = useState(retardo.accion_aplicada ?? retardo.accion);
+  const [justificacionAjuste, setJustificacionAjuste] = useState(retardo.justificacion_ajuste ?? "");
+  const [fundamento, setFundamento] = useState("");
+
+  const opcionesAccion = useMemo(() => {
+    const t = falta.ladder ?? [];
+    return t.includes(accionAplicada) ? t : [...t, accionAplicada];
+  }, [falta.ladder, accionAplicada]);
+
+  const articulosDelTipo = useMemo(
+    () => articulos.filter((a) => falta.articulos_relacionados?.includes(a.id)),
+    [articulos, falta.articulos_relacionados],
+  );
+  const hayAjuste = accionAplicada !== retardo.accion;
+  const tecnicoActivo = modo === "tecnico" && !excusaSuficiente && articulosDelTipo.length > 0;
+
   const generarIA = useCallback(async () => {
     setIaError(null);
     setIaLoading(true);
@@ -915,6 +1125,13 @@ function FeedbackEditModal({
           minutos: retardo.minutos,
           observacion: retardo.observacion,
           ocurrencia: retardo.ocurrencia,
+          modo,
+          excusa_suficiente: excusaSuficiente,
+          detalle_excusa: detalleExcusa,
+          accion_sugerida: retardo.accion,
+          accion_aplicada: accionAplicada,
+          justificacion_ajuste: justificacionAjuste,
+          articulos: tecnicoActivo ? articulosDelTipo.map((a) => ({ fuente: a.fuente, numero: a.numero })) : [],
         },
       },
     );
@@ -931,7 +1148,8 @@ function FeedbackEditModal({
     if (ia.situacion) setDescripcion(ia.situacion);
     if (ia.comentarioJefe) setComentariosJefe(ia.comentarioJefe);
     if (ia.planAccion) setPlanAccion(ia.planAccion);
-  }, [falta, persona, retardo]);
+    setFundamento(ia.fundamento ?? "");
+  }, [falta, persona, retardo, modo, excusaSuficiente, detalleExcusa, accionAplicada, justificacionAjuste, tecnicoActivo, articulosDelTipo]);
 
   // Auto-llamada IA al abrir el modal (una vez)
   useEffect(() => {
@@ -941,14 +1159,37 @@ function FeedbackEditModal({
 
   async function descargar() {
     setError(null);
+    if (hayAjuste && !justificacionAjuste.trim()) {
+      setError('Si ajustas la acción, escribe la justificación (parágrafo del Artículo 64).');
+      return;
+    }
     setDescargando(true);
     try {
+      // Persiste la decisión de esta revisión (excusa/ajuste) en el registro.
+      const { error: updErr } = await supabase
+        .from("retardos")
+        .update({
+          excusa_suficiente: excusaSuficiente,
+          detalle_excusa: excusaSuficiente ? detalleExcusa.trim() || null : null,
+          accion_aplicada: hayAjuste ? accionAplicada : null,
+          justificacion_ajuste: hayAjuste ? justificacionAjuste.trim() || null : null,
+        })
+        .eq("id", retardo.id);
+      if (updErr) throw new Error(updErr.message);
+
       await generarFeedbackPdf({
         retardo, persona, jefatura, falta,
         fecha, area, nombreTrabajador, cedulaTrabajador,
         descripcion, comentariosJefe, comentariosEmpleado, planAccion,
         fechaCierre: fechaCierre || undefined,
         nombreJefe, cedulaJefe,
+        fundamento: tecnicoActivo ? fundamento : undefined,
+        articulos: tecnicoActivo
+          ? articulosDelTipo.map((a): ArticuloCitado => ({ fuente: a.fuente, numero: a.numero, titulo: a.titulo, texto: a.texto }))
+          : undefined,
+        accionSugerida: retardo.accion,
+        accionAplicada: hayAjuste ? accionAplicada : undefined,
+        justificacionAjuste: hayAjuste ? justificacionAjuste : undefined,
       });
       onClose();
     } catch (err) {
@@ -1039,6 +1280,96 @@ function FeedbackEditModal({
             className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm" />
         </div>
       </div>
+
+      <div className="mb-3 bg-paper border border-line rounded-md p-3">
+        <label className="block text-xs text-muted uppercase tracking-wider mb-1.5">Tipo de redacción</label>
+        <div className="flex gap-2 mb-2">
+          <button
+            type="button"
+            onClick={() => setModo("basico")}
+            className={
+              "flex-1 py-1.5 border rounded-md text-[12.5px] font-medium transition-colors " +
+              (modo === "basico" ? "bg-brand text-white border-brand" : "bg-white border-line hover:bg-paper")
+            }
+          >
+            Básico
+          </button>
+          <button
+            type="button"
+            onClick={() => setModo("tecnico")}
+            disabled={articulosDelTipo.length === 0}
+            className={
+              "flex-1 py-1.5 border rounded-md text-[12.5px] font-medium transition-colors disabled:opacity-40 " +
+              (modo === "tecnico" ? "bg-brand text-white border-brand" : "bg-white border-line hover:bg-paper")
+            }
+            title={articulosDelTipo.length === 0 ? "Este tipo de falta no tiene artículos vinculados todavía" : ""}
+          >
+            Técnico (cita el reglamento)
+          </button>
+        </div>
+        {modo === "tecnico" && articulosDelTipo.length > 0 && !excusaSuficiente && (
+          <p className="text-[11px] text-muted">
+            Incluirá un anexo con el texto exacto de:{" "}
+            {articulosDelTipo.map((a) => `Artículo ${a.numero} (${a.fuente})`).join(", ")}.
+          </p>
+        )}
+        {modo === "tecnico" && excusaSuficiente && (
+          <p className="text-[11px] text-ventas">
+            Hay excusa suficiente marcada — el modo técnico no cita sanción en este caso (Art. 64).
+          </p>
+        )}
+
+        <label className="flex items-center gap-2 text-[12.5px] cursor-pointer mt-3">
+          <input type="checkbox" checked={excusaSuficiente} onChange={(e) => setExcusaSuficiente(e.target.checked)} />
+          El colaborador presentó una excusa suficiente
+        </label>
+        {excusaSuficiente && (
+          <textarea
+            value={detalleExcusa}
+            onChange={(e) => setDetalleExcusa(e.target.value)}
+            rows={2}
+            placeholder="¿Cuál fue la excusa?"
+            className="w-full mt-2 px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+          />
+        )}
+
+        <div className="mt-3">
+          <label className="block text-xs text-muted uppercase tracking-wider mb-1">
+            Acción a aplicar (sugerida: {retardo.accion})
+          </label>
+          <select
+            value={accionAplicada}
+            onChange={(e) => setAccionAplicada(e.target.value)}
+            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
+          >
+            {opcionesAccion.map((op) => (
+              <option key={op} value={op}>{op}</option>
+            ))}
+          </select>
+          {hayAjuste && (
+            <>
+              <p className="text-[11px] text-ventas mt-1">
+                Distinta a la sugerida — según el parágrafo del Art. 64, justifica el ajuste (antecedentes,
+                circunstancias, cargo o perjuicios).
+              </p>
+              <textarea
+                value={justificacionAjuste}
+                onChange={(e) => setJustificacionAjuste(e.target.value)}
+                rows={2}
+                placeholder="Justificación del ajuste"
+                className="w-full mt-1 px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+              />
+            </>
+          )}
+        </div>
+      </div>
+
+      {tecnicoActivo && fundamento && (
+        <div className="mb-3 bg-brand/5 border border-brand/20 rounded-md px-3 py-2 text-xs text-ink">
+          <span className="uppercase tracking-wider text-muted text-[10.5px]">Fundamento (va en el anexo del PDF)</span>
+          <div className="mt-0.5">{fundamento}</div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-3 bg-warn-soft text-warn border border-warn-border rounded-md px-3 py-2 text-xs">
@@ -1492,6 +1823,151 @@ function PlanTrabajoModal({
           {descargando ? "Generando PDF…" : "Descargar Plan de Trabajo"}
         </button>
       </div>
+    </Modal>
+  );
+}
+
+// ---------- Reconocimiento (feedback positivo) ----------
+
+type ReconocimientoIA = { texto: string };
+
+function ReconocimientoModal({
+  persona,
+  roster,
+  onClose,
+  onSaved,
+}: {
+  persona: Persona;
+  roster: RosterPublico[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [personaId, setPersonaId] = useState<string>(roster[0]?.id ?? "");
+  const [fecha, setFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [motivo, setMotivo] = useState("");
+  const [texto, setTexto] = useState("");
+  const [generando, setGenerando] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const colaboradorNombre = roster.find((p) => p.id === personaId)?.nombre ?? "";
+
+  async function generarIA() {
+    setError(null);
+    if (!motivo.trim()) {
+      setError("Describe el motivo del reconocimiento.");
+      return;
+    }
+    setGenerando(true);
+    const { data, error: fnError } = await supabase.functions.invoke("generar-reconocimiento-contenido", {
+      body: { colaborador: colaboradorNombre, fecha, motivo: motivo.trim() },
+    });
+    setGenerando(false);
+    if (fnError) {
+      setError(await extractFunctionErrorMessage(fnError, data));
+      return;
+    }
+    const ia = data as ReconocimientoIA | null;
+    if (ia?.texto) setTexto(ia.texto);
+  }
+
+  async function guardar() {
+    setError(null);
+    if (!personaId || !fecha || !motivo.trim()) {
+      setError("Completa persona, fecha y motivo.");
+      return;
+    }
+    if (!texto.trim()) {
+      setError('Genera o escribe el texto del reconocimiento antes de guardar.');
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase.from("reconocimientos").insert({
+      persona_id: personaId,
+      fecha,
+      motivo: motivo.trim(),
+      texto: texto.trim(),
+      estado: "pendiente",
+      registrado_por: persona.id,
+    });
+    setSaving(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <Modal onClose={onClose} title="Nuevo reconocimiento">
+      <p className="text-muted text-[12.5px] mb-3">
+        Feedback positivo — no pasa por la matriz de faltas, no cuenta para ninguna escalera ni cita el
+        reglamento.
+      </p>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <Field label="Persona" full>
+          <select
+            value={personaId}
+            onChange={(e) => setPersonaId(e.target.value)}
+            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
+          >
+            {roster.map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre} — {p.cargo}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Fecha">
+          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
+            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm" />
+        </Field>
+      </div>
+
+      <div className="mb-3">
+        <label className="block text-xs text-muted uppercase tracking-wider mb-1">Motivo</label>
+        <textarea
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          rows={2}
+          placeholder="Ej: cerró el mes por encima de la meta con el mejor UPT del equipo"
+          className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+        />
+      </div>
+
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs text-muted uppercase tracking-wider">Texto del reconocimiento</label>
+          <button
+            type="button"
+            onClick={generarIA}
+            disabled={generando}
+            className="text-[11.5px] text-brand hover:underline disabled:opacity-50"
+          >
+            {generando ? "Redactando…" : "↻ Redactar con IA"}
+          </button>
+        </div>
+        <textarea
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          rows={5}
+          placeholder="Escribe el texto o pide que la IA lo redacte a partir del motivo"
+          className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+        />
+      </div>
+
+      {error && (
+        <div className="mb-3 bg-warn-soft text-warn border border-warn-border rounded-md px-3 py-2 text-xs">
+          {error}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={guardar}
+        disabled={saving}
+        className="w-full py-2.5 bg-operaciones text-white rounded-md font-semibold text-sm disabled:opacity-50 hover:bg-operaciones/90 transition-colors"
+      >
+        {saving ? "Guardando…" : "Guardar reconocimiento"}
+      </button>
     </Modal>
   );
 }

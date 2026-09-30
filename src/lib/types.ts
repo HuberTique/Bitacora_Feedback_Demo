@@ -121,6 +121,7 @@ export type FaltaConfig = {
   requiere_minutos: boolean;
   ladder: string[];
   posicion: number;
+  articulos_relacionados: number[];
 };
 
 export const ESTADOS_RETARDO = ["pendiente", "realizada"] as const;
@@ -134,16 +135,48 @@ export type Retardo = {
   minutos: number | null;
   observacion: string;
   ocurrencia: number;
-  accion: string;
+  accion: string; // acción sugerida por la escalera — nunca se sobrescribe
   estado: EstadoRetardo;
   registrado_por: string;
   created_at: string;
   updated_at: string;
+  // Excusa suficiente (Art. 64 R.I.T.: la sanción aplica "sin excusa
+  // suficiente") y ajuste justificado (parágrafo del mismo artículo).
+  excusa_suficiente: boolean;
+  detalle_excusa: string | null;
+  accion_aplicada: string | null; // null = igual a `accion` (sin ajuste)
+  justificacion_ajuste: string | null;
 };
 
 export function labelEstadoRetardo(e: EstadoRetardo): string {
   return e === "pendiente" ? "Pendiente" : "Realizada";
 }
+
+// ---------- Artículos del reglamento (modo técnico) ----------
+
+export type FuenteArticulo = "RIT" | "CST";
+
+export type ArticuloReglamento = {
+  id: number;
+  fuente: FuenteArticulo;
+  numero: string;
+  titulo: string | null;
+  texto: string;
+};
+
+// ---------- Reconocimientos (feedback positivo) ----------
+
+export type Reconocimiento = {
+  id: string;
+  persona_id: string;
+  fecha: string;
+  motivo: string;
+  texto: string;
+  estado: EstadoRetardo;
+  registrado_por: string;
+  created_at: string;
+  updated_at: string;
+};
 
 // ---------- Horarios ----------
 

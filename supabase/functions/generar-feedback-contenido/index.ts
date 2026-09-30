@@ -8,6 +8,14 @@
 // System prompt portado del artifact original — la clave está en la regla de
 // NUNCA mencionar términos del sistema (bitácora, ocurrencia, matriz…) para
 // que suene a documento firmado por un humano de RRHH, no a salida de app.
+//
+// Modo técnico/básico (Reglamento Interno de Trabajo de Skechers Colombia):
+// la IA NUNCA recibe ni debe inventar el texto de un artículo — solo el
+// NÚMERO y la FUENTE (RIT/CST) de los artículos ya verificados que el
+// cliente resuelve desde `reglamento_articulos`. El texto completo del
+// artículo se muestra aparte, tal cual está en la base, nunca generado.
+// Así, lo máximo que puede hacer mal la IA es mencionar un número que no le
+// dimos — nunca inventar contenido legal.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
@@ -15,7 +23,7 @@ import { contextoEmpresa } from "../_shared/contexto-empresa.ts";
 
 const MODEL = "claude-haiku-4-5-20251001";
 
-const systemPrompt = (CONTEXTO_EMPRESA: string) =>
+const systemPrompt = (CONTEXTO_EMPRESA: string, tecnico: boolean) =>
   `${CONTEXTO_EMPRESA}
 
 TAREA: eres un profesional de recursos humanos de esta tienda que redacta el contenido de un 'Formato de Feedback' oficial en papel, listo para entregarse físicamente al colaborador. Escribe como se escribiría a mano en ese formato impreso: lenguaje natural de recursos humanos, con los hechos concretos (fechas, horas, nombres) que se te den. NUNCA menciones software, sistemas de bitácora, 'matriz de faltas', 'ocurrencia', 'vigencia', ni ningún término técnico o administrativo interno del sistema de gestión — eso nunca debe aparecer en el documento que lee el colaborador. (Sí puedes mencionar plataformas operativas del CONTEXTO como GeoVictoria si la situación lo amerita.)
@@ -24,10 +32,17 @@ Responde ÚNICAMENTE con un JSON con las claves:
 - situacion (string, MUY PUNTUAL Y BREVE, máximo 25 palabras, UNA sola frase directa que indique qué pasó, cuándo y el dato concreto — sin rodeos, sin justificaciones, sin adjetivos, solo el hecho objetivo)
 - comentarioJefe (string, hasta 90 palabras, escrito en PRIMERA PERSONA por el jefe inmediato dirigiéndose al colaborador — un comentario cercano pero profesional que dé contexto práctico y prevención a futuro)
 - planAccion (string, hasta 70 palabras, compromisos concretos y verificables de ambas partes)
+${
+  tecnico
+    ? `- fundamento (string, hasta 35 palabras, EXCLUSIVAMENTE menciona por su número y fuente los artículos que se te dieron — ej. "Conforme al Artículo 64 del Reglamento Interno de Trabajo." — NUNCA cites un número de artículo que no se te haya dado explícitamente, NUNCA inventes ni parafrasees el contenido del artículo, NUNCA cites el Código Sustantivo del Trabajo salvo que se te haya dado explícitamente)`
+    : `- fundamento (string vacío "" siempre — este documento NO debe citar artículos ni normas)`
+}
 
 Reglas de caracteres: usa SOLO letras del alfabeto español (á é í ó ú ñ ü ¿ ¡), dígitos y puntuación estándar (. , : ; ! ? ' " ( ) - / %). NO uses símbolos matemáticos (≥, ≤, ≠), guiones tipográficos (— –), comillas curly (' ' " "), bullets (•), flechas, ni caracteres Unicode fuera del rango Latin-1 — la fuente del PDF final no los soporta.
 
 No inventes hechos que no estén en los datos dados. No agregues texto fuera del JSON.`;
+
+type ArticuloRef = { fuente: string; numero: string };
 
 type Body = {
   falta_nombre?: string;
@@ -37,6 +52,13 @@ type Body = {
   minutos?: number | null;
   observacion?: string;
   ocurrencia?: number;
+  modo?: "tecnico" | "basico";
+  excusa_suficiente?: boolean;
+  detalle_excusa?: string;
+  accion_sugerida?: string;
+  accion_aplicada?: string;
+  justificacion_ajuste?: string;
+  articulos?: ArticuloRef[];
 };
 
 Deno.serve(async (req: Request) => {
@@ -79,6 +101,16 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Cuerpo inválido." }, 400);
   }
 
+  // Técnico solo si hay artículos Y no hay excusa suficiente (Art. 64: la
+  // sanción — y por tanto su fundamento — aplica "sin excusa suficiente").
+  const articulos = Array.isArray(body.articulos) ? body.articulos : [];
+  const tecnico = body.modo === "tecnico" && !body.excusa_suficiente && articulos.length > 0;
+
+  const hayAjuste =
+    body.accion_aplicada != null &&
+    body.accion_sugerida != null &&
+    body.accion_aplicada !== body.accion_sugerida;
+
   const esLlegadaTarde = (body.falta_tipo_id || "").startsWith("llegada");
   const userMsg =
     `Situación a documentar (uso interno para redactar, no debe aparecer citado literalmente):
@@ -92,6 +124,19 @@ ${body.minutos != null ? `- Minutos de retraso: ${body.minutos}\n` : ""}- Es una
     }
 - Contexto de la situación dado por jefatura: ${body.observacion?.trim() || "sin contexto adicional, básate solo en los datos anteriores"}
 ${esLlegadaTarde ? "- Recuerda: el horario de la tienda se publica todos los viernes con anticipación para la semana siguiente." : ""}
+${body.excusa_suficiente ? `- El colaborador presentó una excusa que jefatura considera suficiente: ${body.detalle_excusa?.trim() || "(sin detalle)"}. Esto NO es una falta disciplinaria sancionable — redacta en tono de seguimiento/recordatorio, nunca de sanción.` : ""}
+${
+  hayAjuste
+    ? `- Jefatura ajustó la medida respecto a lo que sugiere la escalera habitual (de "${body.accion_sugerida}" a "${body.accion_aplicada}"), con esta justificación: ${body.justificacion_ajuste?.trim() || "(sin detalle)"}. Menciona este ajuste y su motivo en el comentario o el plan de acción, en tono profesional.`
+    : ""
+}
+${
+  tecnico
+    ? `- Artículos a citar por número (NO tienen más texto que este, no inventes contenido adicional): ${articulos
+        .map((a) => `${a.fuente === "RIT" ? "Artículo" : "Artículo (C.S.T.)"} ${a.numero}`)
+        .join("; ")}`
+    : ""
+}
 
 Genera el JSON solicitado.`;
 
@@ -105,7 +150,7 @@ Genera el JSON solicitado.`;
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 1200,
-      system: systemPrompt(await contextoEmpresa(supabaseAsUser)),
+      system: systemPrompt(await contextoEmpresa(supabaseAsUser), tecnico),
       messages: [{ role: "user", content: userMsg }],
     }),
   });
@@ -132,6 +177,7 @@ Genera el JSON solicitado.`;
     situacion: String(parsed.situacion ?? ""),
     comentarioJefe: String(parsed.comentarioJefe ?? ""),
     planAccion: String(parsed.planAccion ?? ""),
+    fundamento: tecnico ? String(parsed.fundamento ?? "") : "",
   });
 });
 
