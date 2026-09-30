@@ -43,6 +43,12 @@ export function PersonaBuscador({
   const [nombre, setNombre] = useState("");
   const [cedula, setCedula] = useState("");
   const [sugerencias, setSugerencias] = useState<RosterPublico[]>([]);
+  // El formulario NO se colapsa a la vista "persona confirmada" con cada
+  // tecla — antes lo hacía apenas CM+nombre resolvían algo, lo que impedía
+  // seguir escribiendo el nombre tras el primer carácter. Solo se colapsa
+  // cuando el usuario sale de un campo (o elige una sugerencia) con ambos
+  // datos ya escritos: un gesto explícito de "ya terminé".
+  const [tocado, setTocado] = useState(false);
 
   const seleccionadaExistente =
     value?.tipo === "existente" ? roster.find((p) => p.id === value.personaId) ?? null : null;
@@ -91,16 +97,26 @@ export function PersonaBuscador({
     setNombre(p.nombre);
     setCm(p.codigo ?? "");
     setSugerencias([]);
+    // Elegir una sugerencia es un gesto explícito — ahí sí se confirma.
+    setTocado(true);
   }
 
   function cambiar() {
     setCm("");
     setNombre("");
     setCedula("");
+    setTocado(false);
     onChange(null);
   }
 
-  if (seleccionadaExistente) {
+  // Solo se marca "tocado" (y por tanto se colapsa el formulario) al salir
+  // de un campo cuando ya hay algo escrito en los dos datos obligatorios —
+  // así no se cierra a mitad de la primera palabra del nombre.
+  function alSalirDeCampo() {
+    if (soloDigitos(cm) && nombre.trim()) setTocado(true);
+  }
+
+  if (seleccionadaExistente && tocado) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 border border-line rounded-md bg-white text-sm">
         <span className="font-mono text-xs text-muted">{seleccionadaExistente.codigo ?? "sin CM"}</span>
@@ -113,7 +129,7 @@ export function PersonaBuscador({
     );
   }
 
-  if (value?.tipo === "nueva") {
+  if (value?.tipo === "nueva" && tocado) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 border border-operaciones/40 bg-operaciones/5 rounded-md text-sm">
         <span className="font-mono text-xs text-muted">{value.cm}</span>
@@ -140,6 +156,7 @@ export function PersonaBuscador({
             inputMode="numeric"
             value={cm}
             onChange={(e) => setCm(e.target.value)}
+            onBlur={alSalirDeCampo}
             placeholder="Código de empleado"
             className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
           />
@@ -162,6 +179,7 @@ export function PersonaBuscador({
           type="text"
           value={nombre}
           onChange={(e) => setNombre(e.target.value)}
+          onBlur={alSalirDeCampo}
           placeholder="Nombre y apellidos"
           className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
         />
