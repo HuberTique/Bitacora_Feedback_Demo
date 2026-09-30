@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
+import { PersonaBuscador } from "@/components/PersonaBuscador";
+import { ReglamentoMatrizTab } from "@/components/feedbacks/ReglamentoMatrizTab";
 import {
   ESTADOS_RETARDO,
   labelEstadoRetardo,
@@ -56,6 +58,7 @@ export default function FeedbacksPage() {
   const [fPersona, setFPersona] = useState<string>("");
   const [fTipo, setFTipo] = useState<string>("");
   const [fEstado, setFEstado] = useState<"" | EstadoRetardo>("");
+  const [tab, setTab] = useState<"activas" | "historial" | "reconocimientos" | "reglamento">("activas");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [readingImage, setReadingImage] = useState<{ done: number; total: number } | null>(null);
@@ -132,6 +135,16 @@ export default function FeedbacksPage() {
         (!fEstado || r.estado === fEstado),
     );
   }, [retardos, fPersona, fTipo, fEstado]);
+
+  // Vigencia de 3 meses (igual que compute_ocurrencia): lo más reciente queda
+  // en "Activas"; lo que ya no cuenta para la escalera pasa a "Historial".
+  const corteVigencia = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const activas = useMemo(() => filtered.filter((r) => r.fecha >= corteVigencia), [filtered, corteVigencia]);
+  const historial = useMemo(() => filtered.filter((r) => r.fecha < corteVigencia), [filtered, corteVigencia]);
 
   if (loading || !persona || persona.rol !== "jefatura") {
     return (
@@ -216,7 +229,7 @@ export default function FeedbacksPage() {
             <h2 className="text-[17px] font-display font-semibold m-0 mb-1">Feedbacks y planes de trabajo</h2>
             <p className="text-muted text-[13px] max-w-2xl">
               Faltas registradas según la matriz vigente. La ocurrencia y acción sugerida
-              se calculan automáticamente contra los previos vigentes (últimos 4 meses).
+              se calculan automáticamente contra los previos vigentes (últimos 3 meses).
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -262,43 +275,27 @@ export default function FeedbacksPage() {
           </div>
         </div>
 
-        <div className="flex gap-2 flex-wrap mb-4">
-          <select
-            value={fPersona}
-            onChange={(e) => setFPersona(e.target.value)}
-            className="px-2 py-1.5 border border-line rounded-md bg-white text-sm"
-          >
-            <option value="">Todas las personas</option>
-            {roster.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </select>
-          <select
-            value={fTipo}
-            onChange={(e) => setFTipo(e.target.value)}
-            className="px-2 py-1.5 border border-line rounded-md bg-white text-sm"
-          >
-            <option value="">Todos los tipos</option>
-            {tipos.map((t) => (
-              <option key={t.tipo_id} value={t.tipo_id}>
-                {t.nombre}
-              </option>
-            ))}
-          </select>
-          <select
-            value={fEstado}
-            onChange={(e) => setFEstado(e.target.value as "" | EstadoRetardo)}
-            className="px-2 py-1.5 border border-line rounded-md bg-white text-sm"
-          >
-            <option value="">Todos los estados</option>
-            {ESTADOS_RETARDO.map((e) => (
-              <option key={e} value={e}>
-                {labelEstadoRetardo(e)}
-              </option>
-            ))}
-          </select>
+        <div className="flex gap-1 border-b border-line mb-4 -mt-1">
+          {(
+            [
+              ["activas", `Activas (${activas.length})`],
+              ["historial", `Historial (${historial.length})`],
+              ["reconocimientos", `Reconocimientos (${reconocimientos.length})`],
+              ["reglamento", "Reglamento y matriz"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={
+                "px-3 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors " +
+                (tab === id ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink")
+              }
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {fetchError && (
@@ -307,11 +304,60 @@ export default function FeedbacksPage() {
           </div>
         )}
 
-        {filtered.length === 0 ? (
-          <div className="bg-panel border border-line rounded-[10px] p-8 text-center text-muted text-sm">
-            No hay faltas registradas que coincidan con el filtro.
-          </div>
-        ) : (
+        {(tab === "activas" || tab === "historial") && (
+          <>
+            <div className="flex gap-2 flex-wrap mb-4">
+              <select
+                value={fPersona}
+                onChange={(e) => setFPersona(e.target.value)}
+                className="px-2 py-1.5 border border-line rounded-md bg-white text-sm"
+              >
+                <option value="">Todas las personas</option>
+                {roster.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.codigo ?? "—"} — {p.nombre}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={fTipo}
+                onChange={(e) => setFTipo(e.target.value)}
+                className="px-2 py-1.5 border border-line rounded-md bg-white text-sm"
+              >
+                <option value="">Todos los tipos</option>
+                {tipos.map((t) => (
+                  <option key={t.tipo_id} value={t.tipo_id}>
+                    {t.nombre}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={fEstado}
+                onChange={(e) => setFEstado(e.target.value as "" | EstadoRetardo)}
+                className="px-2 py-1.5 border border-line rounded-md bg-white text-sm"
+              >
+                <option value="">Todos los estados</option>
+                {ESTADOS_RETARDO.map((e) => (
+                  <option key={e} value={e}>
+                    {labelEstadoRetardo(e)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {tab === "historial" && (
+              <p className="text-[12px] text-muted mb-3">
+                Faltas de hace más de 3 meses — ya no cuentan para la escalera de sanción, quedan solo como registro.
+              </p>
+            )}
+
+            {(tab === "activas" ? activas : historial).length === 0 ? (
+              <div className="bg-panel border border-line rounded-[10px] p-8 text-center text-muted text-sm">
+                {tab === "activas"
+                  ? "No hay faltas activas que coincidan con el filtro."
+                  : "No hay faltas en el historial que coincidan con el filtro."}
+              </div>
+            ) : (
           <div className="bg-panel border border-line rounded-[10px] p-5 overflow-x-auto">
             <table className="w-full text-sm min-w-[900px]">
               <thead>
@@ -328,7 +374,7 @@ export default function FeedbacksPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {(tab === "activas" ? activas : historial).map((r) => (
                   <tr key={r.id} className="border-b border-line/60 last:border-0 align-top">
                     <td className="py-3 pr-3">{nombreDe(r.persona_id)}</td>
                     <td className="py-3 pr-3">
@@ -395,14 +441,12 @@ export default function FeedbacksPage() {
               </tbody>
             </table>
           </div>
+            )}
+          </>
         )}
 
-        <div className="mt-8 mb-3">
-          <h3 className="text-[15px] font-display font-semibold m-0 mb-1">Reconocimientos</h3>
-          <p className="text-muted text-[13px]">
-            Feedback positivo — no pasa por la matriz de faltas ni tiene fundamento legal.
-          </p>
-        </div>
+        {tab === "reconocimientos" && (
+          <>
         {reconocimientos.length === 0 ? (
           <div className="bg-panel border border-line rounded-[10px] p-6 text-center text-muted text-sm">
             Aún no hay reconocimientos registrados.
@@ -456,6 +500,12 @@ export default function FeedbacksPage() {
               </tbody>
             </table>
           </div>
+        )}
+          </>
+        )}
+
+        {tab === "reglamento" && (
+          <ReglamentoMatrizTab tipos={tipos} articulos={articulos} onChanged={loadAll} />
         )}
       </div>
 
@@ -661,7 +711,7 @@ function NuevoRetardoModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [personaId, setPersonaId] = useState<string>(roster[0]?.id ?? "");
+  const [personaId, setPersonaId] = useState<string>("");
   const [tipoId, setTipoId] = useState<string>(tipos[0]?.tipo_id ?? "");
   const [fecha, setFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [minutos, setMinutos] = useState<string>("10");
@@ -709,6 +759,10 @@ function NuevoRetardoModal({
       setError("Este tipo requiere minutos.");
       return;
     }
+    if (tipo?.requiere_descripcion && !obs.trim()) {
+      setError('Describe de qué se trata la falta "Otro" en el contexto.');
+      return;
+    }
     setSaving(true);
     const { error } = await supabase.from("retardos").insert({
       persona_id: personaId,
@@ -735,17 +789,7 @@ function NuevoRetardoModal({
     <Modal onClose={onClose} title="Registrar falta">
       <div className="grid grid-cols-2 gap-3">
         <Field label="Persona" full>
-          <select
-            value={personaId}
-            onChange={(e) => setPersonaId(e.target.value)}
-            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
-          >
-            {roster.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre} — {p.cargo}
-              </option>
-            ))}
-          </select>
+          <PersonaBuscador roster={roster} value={personaId} onChange={setPersonaId} />
         </Field>
         <Field label="Tipo de falta" full>
           <select
@@ -779,13 +823,20 @@ function NuevoRetardoModal({
             />
           </Field>
         )}
-        <Field label="Contexto de la situación (opcional)" full>
+        <Field label={tipo?.requiere_descripcion ? "Describe la falta (obligatorio)" : "Contexto de la situación (opcional)"} full>
           <textarea
             value={obs}
             onChange={(e) => setObs(e.target.value)}
             rows={3}
-            placeholder="Detalle para redactar el feedback formal..."
-            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+            placeholder={
+              tipo?.requiere_descripcion
+                ? "¿Qué pasó exactamente? Este tipo no tiene descripción predefinida."
+                : "Detalle para redactar el feedback formal..."
+            }
+            className={
+              "w-full px-3 py-2 border rounded-md bg-white text-sm resize-y " +
+              (tipo?.requiere_descripcion ? "border-warn-border bg-warn-soft/30" : "border-line")
+            }
           />
         </Field>
         <Field label=" " full>
@@ -1842,7 +1893,7 @@ function ReconocimientoModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [personaId, setPersonaId] = useState<string>(roster[0]?.id ?? "");
+  const [personaId, setPersonaId] = useState<string>("");
   const [fecha, setFecha] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [motivo, setMotivo] = useState("");
   const [texto, setTexto] = useState("");
@@ -1906,15 +1957,7 @@ function ReconocimientoModal({
       </p>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <Field label="Persona" full>
-          <select
-            value={personaId}
-            onChange={(e) => setPersonaId(e.target.value)}
-            className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm"
-          >
-            {roster.map((p) => (
-              <option key={p.id} value={p.id}>{p.nombre} — {p.cargo}</option>
-            ))}
-          </select>
+          <PersonaBuscador roster={roster} value={personaId} onChange={setPersonaId} />
         </Field>
         <Field label="Fecha">
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}

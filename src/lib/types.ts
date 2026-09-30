@@ -53,6 +53,7 @@ export type RosterPublico = {
   rol: Rol;
   rol_jerarquico: RolJerarquico;
   foto_path: string | null;
+  codigo: string | null; // CM — identifica a la persona igual que en Ventas
 };
 
 export const MOTIVOS_BAJA = [
@@ -122,6 +123,7 @@ export type FaltaConfig = {
   ladder: string[];
   posicion: number;
   articulos_relacionados: number[];
+  requiere_descripcion: boolean; // ej. tipo "otro" — exige explicar la falta
 };
 
 export const ESTADOS_RETARDO = ["pendiente", "realizada"] as const;
