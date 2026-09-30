@@ -88,6 +88,24 @@ export function matchPersonaPorNombre<T extends { id: string; nombre: string }>(
   return best;
 }
 
+/**
+ * Match por CM primero (igual que en Ventas consolidadas — nunca solo por
+ * nombre), y solo si no hay CM o no coincide con nadie, cae al aproximado
+ * por nombre.
+ */
+export function matchPersonaPorCmONombre<T extends { id: string; nombre: string; codigo: string | null }>(
+  cm: string,
+  nombre: string,
+  roster: T[],
+): T | null {
+  const cmDigits = (cm || "").replace(/\D/g, "");
+  if (cmDigits) {
+    const porCm = roster.find((p) => p.codigo && p.codigo.replace(/\D/g, "") === cmDigits);
+    if (porCm) return porCm;
+  }
+  return matchPersonaPorNombre(nombre, roster);
+}
+
 /** Elige el tipo de falta apropiado según los minutos de atraso. */
 export function tipoIdPorMinutos<T extends { tipo_id: string; requiere_minutos: boolean }>(
   min: number,

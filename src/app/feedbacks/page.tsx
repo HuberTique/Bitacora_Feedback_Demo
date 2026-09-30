@@ -18,7 +18,7 @@ import {
   type RosterPublico,
 } from "@/lib/types";
 import {
-  matchPersonaPorNombre,
+  matchPersonaPorCmONombre,
   resizeImage,
   tipoIdPorMinutos,
 } from "@/lib/imagenIA";
@@ -37,6 +37,7 @@ type ModoFeedback = "basico" | "tecnico";
 
 type DetectedRow = {
   nombreDetectado: string;
+  cmDetectado: string; // "" si el reporte no traía CM
   personaId: string; // "" si sin match
   fecha: string;
   minutos: number;
@@ -622,7 +623,7 @@ export default function FeedbacksPage() {
         }
         const payload = data as
           | {
-              registros?: { nombre: string; fecha: string; minutos: number }[];
+              registros?: { nombre: string; fecha: string; minutos: number; cm?: string }[];
               debug?: { raw_preview?: string; stop_reason?: string };
             }
           | null;
@@ -633,9 +634,11 @@ export default function FeedbacksPage() {
           );
         }
         for (const r of registros) {
-          const match = matchPersonaPorNombre(r.nombre, roster);
+          const cm = r.cm ?? "";
+          const match = matchPersonaPorCmONombre(cm, r.nombre, roster);
           detectados.push({
             nombreDetectado: r.nombre,
+            cmDetectado: cm,
             personaId: match?.id ?? "",
             fecha: r.fecha || new Date().toISOString().slice(0, 10),
             minutos: r.minutos,
@@ -1013,7 +1016,10 @@ function RevisionModal({
                 <tr className="text-left border-b border-line">
                   <th className="pb-2 pr-2 w-[30px]"></th>
                   <th className="pb-2 pr-2 font-semibold text-[11px] uppercase tracking-wider text-muted">
-                    Detectado
+                    CM detectado
+                  </th>
+                  <th className="pb-2 pr-2 font-semibold text-[11px] uppercase tracking-wider text-muted">
+                    Nombre detectado
                   </th>
                   <th className="pb-2 pr-2 font-semibold text-[11px] uppercase tracking-wider text-muted">
                     Persona
@@ -1036,6 +1042,9 @@ function RevisionModal({
                         onChange={(e) => updateRow(i, { selected: e.target.checked })}
                       />
                     </td>
+                    <td className="py-2 pr-2 text-[11.5px] font-mono text-muted">
+                      {r.cmDetectado || "—"}
+                    </td>
                     <td className="py-2 pr-2 text-[11.5px] text-muted">
                       {r.nombreDetectado || "—"}
                       {!r.personaId && (
@@ -1051,7 +1060,7 @@ function RevisionModal({
                         <option value="">— selecciona —</option>
                         {roster.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.nombre}
+                            {p.codigo ?? "—"} — {p.nombre}
                           </option>
                         ))}
                       </select>

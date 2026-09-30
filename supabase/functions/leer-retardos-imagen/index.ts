@@ -2,9 +2,10 @@
 //
 // Recibe UNA imagen en base64 de un reporte de control de horario (tipo
 // GeoVictoria) y le pide a Claude que extraiga los atrasos como una lista
-// de tuplas [nombre, fecha, minutos]. El match contra el roster de personal
-// y la escalación se hacen del lado cliente (necesitan interacción de
-// jefatura para confirmar cada fila antes de registrar).
+// de tuplas [nombre, fecha, minutos, cm]. El match contra el roster de
+// personal prioriza el CM (igual que en Ventas consolidadas) y la
+// escalación se hace del lado cliente (necesitan interacción de jefatura
+// para confirmar cada fila antes de registrar).
 //
 // Requiere ANTHROPIC_API_KEY como secret:
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
@@ -19,12 +20,13 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 const MODEL = "claude-haiku-4-5-20251001";
 
 const SYSTEM_PROMPT =
-  `Eres un asistente que extrae datos de reportes de asistencia/atrasos de un sistema de control de horario (tipo GeoVictoria) de una tienda retail en Colombia. Analiza la imagen y responde ÚNICAMENTE con un JSON compacto: {"registros":[[nombre,fecha,minutos], ...]}.
+  `Eres un asistente que extrae datos de reportes de asistencia/atrasos de un sistema de control de horario (tipo GeoVictoria) de una tienda retail en Colombia. Analiza la imagen y responde ÚNICAMENTE con un JSON compacto: {"registros":[[nombre,fecha,minutos,cm], ...]}.
 
-Cada elemento es un arreglo de 3 valores (NO un objeto):
+Cada elemento es un arreglo de 4 valores (NO un objeto):
   [0] = nombre completo de la persona tal como aparece en la imagen (apellidos y nombres)
   [1] = fecha en formato YYYY-MM-DD (la imagen puede traer DD-MM-YYYY o DD/MM/YYYY, conviértelas)
   [2] = minutos de atraso como número entero POSITIVO
+  [3] = código/ID de empleado (CM), solo dígitos, si el reporte lo muestra en esa fila o junto al nombre; si el reporte NO trae ese dato en absoluto, usa "" — NUNCA inventes ni calcules un CM que no esté escrito en la imagen
 
 REGLAS CRÍTICAS PARA DECIDIR SI UNA FILA ES UN ATRASO:
 
@@ -40,7 +42,7 @@ Incluye a TODAS las personas/días con atraso REAL que veas — no te quedes cor
 
 type ImagePayload = { base64: string; mime: string };
 type Body = { image?: ImagePayload };
-type RegistroTuple = [string, string, number];
+type RegistroTuple = [string, string, number, string?];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -153,6 +155,7 @@ Deno.serve(async (req: Request) => {
           nombre: String(r[0] ?? ""),
           fecha: String(r[1] ?? ""),
           minutos: Number(r[2]) || 0,
+          cm: String(r[3] ?? "").replace(/\D/g, ""),
         };
       }
       if (r && typeof r === "object") {
@@ -161,11 +164,14 @@ Deno.serve(async (req: Request) => {
           nombre: String(o.nombre ?? ""),
           fecha: String(o.fecha ?? ""),
           minutos: Number(o.minutos) || 0,
+          cm: String(o.cm ?? "").replace(/\D/g, ""),
         };
       }
       return null;
     })
-    .filter((r): r is { nombre: string; fecha: string; minutos: number } => r !== null && r.minutos > 0);
+    .filter(
+      (r): r is { nombre: string; fecha: string; minutos: number; cm: string } => r !== null && r.minutos > 0,
+    );
 
   // Cuando registros sale vacío, incluimos un preview de lo que devolvió Claude
   // para poder diagnosticar (¿mala lectura?, ¿formato inesperado?, ¿decidió que
