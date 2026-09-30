@@ -46,10 +46,10 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center p-6 bg-paper">
       <div className="bg-panel border border-line rounded-[10px] p-9 max-w-[420px] w-full shadow-sm">
         <span className="inline-block -rotate-[3deg] border-2 border-warn text-warn font-mono text-[11px] tracking-widest px-2.5 py-0.5 rounded uppercase mb-3.5">
-          Módulo Feedbacks · acceso restringido
+          Acceso restringido
         </span>
         <h1 className="text-[22px] mb-1 font-display font-semibold">
-          Bitácora Digital
+          Feedbacks y Planes de Trabajo
         </h1>
         <p className="text-brand text-xs font-semibold uppercase tracking-wider mb-1">
           {tienda.nombre}
