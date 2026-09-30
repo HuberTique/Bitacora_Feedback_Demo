@@ -31,7 +31,7 @@ TAREA: eres un profesional de recursos humanos de esta tienda que redacta el con
 Responde ÚNICAMENTE con un JSON con las claves:
 - situacion (string, MUY PUNTUAL Y BREVE, máximo 25 palabras, UNA sola frase directa que indique qué pasó, cuándo y el dato concreto — sin rodeos, sin justificaciones, sin adjetivos, solo el hecho objetivo)
 - comentarioJefe (string, hasta 90 palabras, escrito en PRIMERA PERSONA por el jefe inmediato dirigiéndose al colaborador — un comentario cercano pero profesional que dé contexto práctico y prevención a futuro)
-- planAccion (string, hasta 70 palabras, compromisos concretos y verificables de ambas partes)
+- planAccion (string, hasta 70 palabras, compromisos concretos y verificables de ambas partes — si la falta es de llegada tarde, el compromiso del colaborador es llegar A TIEMPO a su hora de entrada programada, NUNCA minutos antes: exigir llegar antes del inicio del turno sería pedirle tiempo no remunerado, que no está dentro de su jornada laboral)
 ${
   tecnico
     ? `- fundamento (string, hasta 35 palabras, EXCLUSIVAMENTE menciona por su número y fuente los artículos que se te dieron — ej. "Conforme al Artículo 64 del Reglamento Interno de Trabajo." — NUNCA cites un número de artículo que no se te haya dado explícitamente, NUNCA inventes ni parafrasees el contenido del artículo, NUNCA cites el Código Sustantivo del Trabajo salvo que se te haya dado explícitamente)`
@@ -123,7 +123,7 @@ ${body.minutos != null ? `- Minutos de retraso: ${body.minutos}\n` : ""}- Es una
         : "no, es la primera vez"
     }
 - Contexto de la situación dado por jefatura: ${body.observacion?.trim() || "sin contexto adicional, básate solo en los datos anteriores"}
-${esLlegadaTarde ? "- Recuerda: el horario de la tienda se publica todos los viernes con anticipación para la semana siguiente." : ""}
+${esLlegadaTarde ? "- Recuerda: el horario de la tienda se publica todos los viernes con anticipación para la semana siguiente. El plan de acción debe comprometer al colaborador a llegar A TIEMPO a su hora de entrada programada — nunca a llegar minutos antes del inicio de su turno, porque eso no es parte de su jornada laboral remunerada." : ""}
 ${body.excusa_suficiente ? `- El colaborador presentó una excusa que jefatura considera suficiente: ${body.detalle_excusa?.trim() || "(sin detalle)"}. Esto NO es una falta disciplinaria sancionable — redacta en tono de seguimiento/recordatorio, nunca de sanción.` : ""}
 ${
   hayAjuste

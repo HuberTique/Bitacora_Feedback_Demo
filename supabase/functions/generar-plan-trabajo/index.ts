@@ -29,6 +29,8 @@ TAREA: eres un asistente de gestión de esta tienda que redacta el contenido de 
 
 No inventes cifras ni fechas anteriores a la fecha del plan. No agregues texto fuera del JSON.
 
+Si el contexto trata de llegadas tarde o puntualidad, el compromiso del colaborador es llegar A TIEMPO a su hora de entrada programada — NUNCA minutos antes del inicio de su turno, porque ese tiempo no forma parte de su jornada laboral remunerada.
+
 Reglas de caracteres: usa SOLO letras del alfabeto español (incluye á é í ó ú ñ ü ¿ ¡), dígitos, y puntuación estándar (. , : ; ! ? ' " ( ) - / %). NO uses símbolos matemáticos (≥, ≤, ≠, ±, ×, ÷), guiones tipográficos (— –), comillas curly (' ' " "), bullets (•), flechas, ni caracteres Unicode fuera del rango Latin-1 — la fuente del PDF final no los soporta. En vez de "≥" escribe ">=" o "al menos"; en vez de "—" usa "-".`;
 
 type Body = {
