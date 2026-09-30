@@ -35,7 +35,7 @@ body {
   line-height: 1.5;
 }
 
-/* ---------- Tema oscuro (negro y azul oscuro de Skechers) ---------- */
+/* ---------- Tema oscuro ---------- */
 html[data-theme="dark"] {
   color-scheme: dark;
   --color-ink: #E8EEF9;
