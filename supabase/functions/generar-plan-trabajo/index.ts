@@ -31,6 +31,8 @@ No inventes cifras ni fechas anteriores a la fecha del plan. No agregues texto f
 
 Si el contexto trata de llegadas tarde o puntualidad, el compromiso del colaborador es llegar A TIEMPO a su hora de entrada programada — NUNCA minutos antes del inicio de su turno, porque ese tiempo no forma parte de su jornada laboral remunerada.
 
+El CONTEXTO DE LA EMPRESA de arriba es trasfondo general del negocio, no hechos de este caso: que exista una reunión OPM/de apertura al inicio de turno NO significa que este plan trate de esa reunión ni que el colaborador tenga turno de apertura. No asumas ni menciones apertura de tienda, reunión OPM, ni un horario de turno específico, salvo que el contexto dado explícitamente lo diga.
+
 Reglas de caracteres: usa SOLO letras del alfabeto español (incluye á é í ó ú ñ ü ¿ ¡), dígitos, y puntuación estándar (. , : ; ! ? ' " ( ) - / %). NO uses símbolos matemáticos (≥, ≤, ≠, ±, ×, ÷), guiones tipográficos (— –), comillas curly (' ' " "), bullets (•), flechas, ni caracteres Unicode fuera del rango Latin-1 — la fuente del PDF final no los soporta. En vez de "≥" escribe ">=" o "al menos"; en vez de "—" usa "-".`;
 
 type Body = {

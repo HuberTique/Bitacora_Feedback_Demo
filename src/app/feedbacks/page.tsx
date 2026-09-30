@@ -1190,6 +1190,11 @@ function FeedbackEditModal({
   const [accionAplicada, setAccionAplicada] = useState(retardo.accion_aplicada ?? retardo.accion);
   const [justificacionAjuste, setJustificacionAjuste] = useState(retardo.justificacion_ajuste ?? "");
   const [fundamento, setFundamento] = useState("");
+  // Contexto que se le da a la IA para redactar — editable aquí mismo antes de
+  // regenerar (no solo al registrar la falta), porque a veces el detalle que
+  // cambia el enfoque del feedback (¿fue en la apertura?, ¿un turno que no la
+  // afectó?, ¿otro motivo?) solo se sabe o se aclara al momento de revisar.
+  const [contextoIA, setContextoIA] = useState(retardo.observacion ?? "");
 
   const opcionesAccion = useMemo(() => {
     const t = falta.ladder ?? [];
@@ -1215,7 +1220,7 @@ function FeedbackEditModal({
           colaborador: persona.nombre,
           fecha: retardo.fecha,
           minutos: retardo.minutos,
-          observacion: retardo.observacion,
+          observacion: contextoIA,
           ocurrencia: retardo.ocurrencia,
           modo,
           excusa_suficiente: excusaSuficiente,
@@ -1241,7 +1246,7 @@ function FeedbackEditModal({
     if (ia.comentarioJefe) setComentariosJefe(ia.comentarioJefe);
     if (ia.planAccion) setPlanAccion(ia.planAccion);
     setFundamento(ia.fundamento ?? "");
-  }, [falta, persona, retardo, modo, excusaSuficiente, detalleExcusa, accionAplicada, justificacionAjuste, tecnicoActivo, articulosDelTipo]);
+  }, [falta, persona, retardo, modo, excusaSuficiente, detalleExcusa, accionAplicada, justificacionAjuste, tecnicoActivo, articulosDelTipo, contextoIA]);
 
   // Auto-llamada IA al abrir el modal (una vez)
   useEffect(() => {
@@ -1261,6 +1266,7 @@ function FeedbackEditModal({
       const { error: updErr } = await supabase
         .from("retardos")
         .update({
+          observacion: contextoIA.trim() || null,
           excusa_suficiente: excusaSuficiente,
           detalle_excusa: excusaSuficiente ? detalleExcusa.trim() || null : null,
           accion_aplicada: hayAjuste ? accionAplicada : null,
@@ -1325,6 +1331,20 @@ function FeedbackEditModal({
           <input type="text" value={cedulaTrabajador} onChange={(e) => setCedulaTrabajador(e.target.value)}
             className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm" />
         </div>
+      </div>
+
+      <div className="mb-3 bg-paper border border-line rounded-md p-3">
+        <label className="block text-xs text-muted uppercase tracking-wider mb-1">Contexto para la IA (opcional)</label>
+        <textarea
+          value={contextoIA}
+          onChange={(e) => setContextoIA(e.target.value)}
+          rows={2}
+          placeholder='Ej. "Fue justo en la apertura, se le pasó la reunión OPM" o "Su turno no es de apertura, no afectó nada más". Sin este dato, la IA redacta en términos neutros, sin asumir apertura ni un horario específico.'
+          className="w-full px-3 py-2 border border-line rounded-md bg-white text-sm resize-y"
+        />
+        <p className="text-[11px] text-muted mt-1">
+          Ajusta esto y dale a &quot;↻ Regenerar con IA&quot; para que el comentario y el plan de acción reflejen la situación real.
+        </p>
       </div>
 
       <div className="mb-3">
