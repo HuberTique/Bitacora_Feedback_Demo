@@ -3,15 +3,16 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 
-// Nombre y ciudad de la tienda: viven en la tabla `tienda_config` (editable
-// desde Personal → Datos de la tienda). Estos valores son el respaldo
-// mientras carga o si la tabla aún no existe.
-export const NOMBRE_TIENDA = "Outlet de las Américas";
+// Nombre, ciudad y logo de la empresa: viven en la tabla `tienda_config`
+// (una sola fila, editable por script/SQL mientras no hay panel propio —
+// ver scripts/set-logo.mjs). Estos valores son el respaldo mientras carga
+// o si la tabla aún no existe.
+export const NOMBRE_TIENDA = "Skechers Colombia S.A.S";
 export const CIUDAD_TIENDA = "Bogotá, Colombia";
 
-export type Tienda = { nombre: string; ciudad: string };
+export type Tienda = { nombre: string; ciudad: string; logo_url: string | null };
 
-const DEFAULT: Tienda = { nombre: NOMBRE_TIENDA, ciudad: CIUDAD_TIENDA };
+const DEFAULT: Tienda = { nombre: NOMBRE_TIENDA, ciudad: CIUDAD_TIENDA, logo_url: null };
 
 // Caché de módulo: se comparte entre login, header y PDFs sin repetir consultas.
 let cache: Tienda = DEFAULT;
@@ -25,10 +26,12 @@ export function nombreTiendaActual(): string {
 export function cargarTienda(forzar = false): Promise<Tienda> {
   if (pendiente && !forzar) return pendiente;
   pendiente = Promise.resolve(
-    supabase.from("tienda_config").select("nombre, ciudad").maybeSingle(),
+    supabase.from("tienda_config").select("nombre, ciudad, logo_url").maybeSingle(),
   ).then(({ data }) => {
     const d = data as Tienda | null;
-    if (d?.nombre) setTiendaCache({ nombre: d.nombre, ciudad: d.ciudad || CIUDAD_TIENDA });
+    if (d?.nombre) {
+      setTiendaCache({ nombre: d.nombre, ciudad: d.ciudad || CIUDAD_TIENDA, logo_url: d.logo_url ?? null });
+    }
     return cache;
   });
   return pendiente;

@@ -14,6 +14,25 @@ type Tab = { href: string; label: string; roles: ("jefatura" | "asesor")[] };
 // Los demás módulos del producto completo quedan suprimidos a propósito.
 const TABS: Tab[] = [{ href: "/feedbacks", label: "Feedbacks", roles: ["jefatura"] }];
 
+/** Logo de la empresa; si aún no se cargó ninguno, muestra sus iniciales en un círculo. */
+function LogoEmpresa({ nombre, url }: { nombre: string; url: string | null }) {
+  if (url) {
+    // eslint-disable-next-line @next/next/no-img-element -- export estático, sin loader de imágenes
+    return <img src={url} alt={nombre} className="w-8 h-8 rounded-full object-cover shrink-0 bg-white" />;
+  }
+  const iniciales = nombre
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
+  return (
+    <div className="w-8 h-8 rounded-full bg-white/15 text-white text-[12px] font-semibold flex items-center justify-center shrink-0">
+      {iniciales || "·"}
+    </div>
+  );
+}
+
 export function AppShell({
   persona,
   children,
@@ -51,14 +70,10 @@ export function AppShell({
     <div className="min-h-screen flex flex-col bg-paper">
       <header className="bg-brand text-white flex flex-wrap items-center gap-x-3 sm:gap-x-6 px-4 sm:px-7 sm:h-[60px] shrink-0">
         <div className="flex items-center gap-2.5 pr-4 sm:pr-5 border-r border-white/15 h-[60px] shrink-0 mr-auto sm:mr-0">
-          <div>
-            <h1 className="text-base m-0 text-white font-display font-semibold leading-tight">
-              Bitácora
-            </h1>
-            <div className="text-[10px] text-white/50 uppercase tracking-wider">
-              {tienda.nombre}
-            </div>
-          </div>
+          <LogoEmpresa nombre={tienda.nombre} url={tienda.logo_url} />
+          <h1 className="text-[15px] m-0 text-white font-display font-semibold leading-tight">
+            {tienda.nombre}
+          </h1>
         </div>
 
         <nav className="flex items-center h-[46px] sm:h-[60px] order-last sm:order-none w-[calc(100%+2rem)] sm:w-auto sm:flex-1 overflow-x-auto -mx-4 px-2 sm:mx-0 sm:px-0 border-t border-white/10 sm:border-0">
@@ -94,10 +109,6 @@ export function AppShell({
 
         <div className="hidden sm:block text-[13px] text-white/70 truncate max-w-[180px]">
           {persona.nombre}
-          <span className="text-white/50">
-            {" "}
-            · {persona.rol === "jefatura" ? "Jefatura" : "Asesor"}
-          </span>
         </div>
         <button
           type="button"
