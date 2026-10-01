@@ -44,6 +44,13 @@ type DetectedRow = {
   selected: boolean;
 };
 
+/** Precarga para "Nuevo Plan de Trabajo" cuando viene de leer una imagen. */
+type PlanTrabajoPrefill = {
+  identidad: IdentidadPersona | null;
+  responsableLibre: string;
+  contexto: string;
+};
+
 export default function FeedbacksPage() {
   const router = useRouter();
   const { loading, session, persona } = useSession();
@@ -66,6 +73,9 @@ export default function FeedbacksPage() {
   const [revising, setRevising] = useState<DetectedRow[] | null>(null);
   const [readErrors, setReadErrors] = useState<string[]>([]);
   const [planTrabajo, setPlanTrabajo] = useState(false);
+  // Precarga opcional del Plan de Trabajo cuando viene de "Leer desde
+  // imagen" (usar lo detectado como contexto en vez de registrar faltas).
+  const [planPrefill, setPlanPrefill] = useState<PlanTrabajoPrefill | null>(null);
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
   const [editingFeedback, setEditingFeedback] = useState<
     | {
@@ -555,7 +565,11 @@ export default function FeedbacksPage() {
         <PlanTrabajoModal
           roster={roster}
           jefatura={persona}
-          onClose={() => setPlanTrabajo(false)}
+          prefill={planPrefill}
+          onClose={() => {
+            setPlanTrabajo(false);
+            setPlanPrefill(null);
+          }}
           onSaved={loadAll}
         />
       )}
@@ -585,6 +599,12 @@ export default function FeedbacksPage() {
             setRevising(null);
             setReadErrors([]);
             loadAll();
+          }}
+          onUsarComoPlan={(prefill) => {
+            setRevising(null);
+            setReadErrors([]);
+            setPlanPrefill(prefill);
+            setPlanTrabajo(true);
           }}
         />
       )}
@@ -955,6 +975,7 @@ function RevisionModal({
   registradoPor,
   onClose,
   onSaved,
+  onUsarComoPlan,
 }: {
   rows: DetectedRow[];
   setRows: (r: DetectedRow[]) => void;
@@ -964,13 +985,48 @@ function RevisionModal({
   registradoPor: string;
   onClose: () => void;
   onSaved: () => void;
+  onUsarComoPlan: (prefill: PlanTrabajoPrefill) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  // Qué hacer con lo detectado: registrar cada fila como falta (lo de
+  // siempre) o usarlo solo como contexto para un Plan de Trabajo nuevo —
+  // útil cuando la situación pide acompañamiento en vez de una sanción.
+  const [destino, setDestino] = useState<"faltas" | "plan">("faltas");
 
   function updateRow(i: number, patch: Partial<DetectedRow>) {
     setRows(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  function usarComoContextoPlan() {
+    setError(null);
+    const seleccionadas = rows.filter((r) => r.selected && r.fecha && r.minutos > 0);
+    if (seleccionadas.length === 0) {
+      setError("Selecciona al menos una fila con fecha y minutos válidos.");
+      return;
+    }
+    const personaIds = Array.from(
+      new Set(seleccionadas.map((r) => r.personaId).filter((id): id is string => !!id)),
+    );
+    const nombres = Array.from(
+      new Set(
+        seleccionadas.map((r) => roster.find((p) => p.id === r.personaId)?.nombre || r.nombreDetectado || "—"),
+      ),
+    );
+    const contexto =
+      "Llegadas tarde detectadas desde imagen de control de horario:\n" +
+      seleccionadas
+        .map((r) => {
+          const nombre = roster.find((p) => p.id === r.personaId)?.nombre || r.nombreDetectado || "persona sin identificar";
+          return `- ${nombre}: ${r.minutos} min tarde el ${fmtDate(r.fecha)}.`;
+        })
+        .join("\n");
+    onUsarComoPlan({
+      identidad: personaIds.length === 1 ? { tipo: "existente", personaId: personaIds[0] } : null,
+      responsableLibre: personaIds.length === 1 ? "" : nombres.join(", "),
+      contexto,
+    });
   }
 
   async function save() {
@@ -1054,10 +1110,43 @@ function RevisionModal({
       ) : (
         <>
           <p className="text-muted text-[12.5px] mb-3">
-            Revisa que cada persona esté bien asignada antes de registrar. Las filas
-            sin coincidencia automática vienen desmarcadas — corrígelas y márcalas si
-            quieres incluirlas.
+            Revisa que cada persona esté bien asignada. Las filas sin coincidencia
+            automática vienen desmarcadas — corrígelas y márcalas si quieres incluirlas.
           </p>
+
+          <div className="mb-3 bg-paper border border-line rounded-md p-3">
+            <label className="block text-[10.5px] text-muted uppercase tracking-wider mb-1.5">
+              Qué hacer con las filas seleccionadas
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDestino("faltas")}
+                className={
+                  "flex-1 py-1.5 border rounded-md text-[12.5px] font-medium transition-colors " +
+                  (destino === "faltas" ? "bg-brand text-white border-brand" : "bg-white border-line hover:bg-paper")
+                }
+              >
+                Registrar como faltas
+              </button>
+              <button
+                type="button"
+                onClick={() => setDestino("plan")}
+                className={
+                  "flex-1 py-1.5 border rounded-md text-[12.5px] font-medium transition-colors " +
+                  (destino === "plan" ? "bg-brand text-white border-brand" : "bg-white border-line hover:bg-paper")
+                }
+              >
+                Usar como contexto de Plan de Trabajo
+              </button>
+            </div>
+            {destino === "plan" && (
+              <p className="text-[11.5px] text-muted mt-1.5">
+                No se registra ninguna falta — se abre un Plan de Trabajo nuevo con la
+                persona y lo detectado como contexto, para que lo ajustes antes de generarlo.
+              </p>
+            )}
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
@@ -1145,15 +1234,17 @@ function RevisionModal({
 
           <button
             type="button"
-            onClick={save}
+            onClick={destino === "faltas" ? save : usarComoContextoPlan}
             disabled={saving}
             className="mt-4 w-full py-2.5 bg-brand text-white rounded-md font-semibold text-sm disabled:opacity-50 hover:bg-brand-light transition-colors"
           >
-            {progress
-              ? `Registrando ${progress.done}/${progress.total}…`
-              : saving
-                ? "Registrando…"
-                : "Registrar seleccionados"}
+            {destino === "faltas"
+              ? progress
+                ? `Registrando ${progress.done}/${progress.total}…`
+                : saving
+                  ? "Registrando…"
+                  : "Registrar seleccionados"
+              : "Continuar al Plan de Trabajo →"}
           </button>
         </>
       )}
@@ -1573,11 +1664,13 @@ type PlanIA = {
 function PlanTrabajoModal({
   roster,
   jefatura,
+  prefill,
   onClose,
   onSaved,
 }: {
   roster: RosterPublico[];
   jefatura: Persona;
+  prefill: PlanTrabajoPrefill | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1590,10 +1683,11 @@ function PlanTrabajoModal({
   // estricto que un retardo/reconocimiento (con alta sobre la marcha si el
   // CM no coincide con nadie). Para un plan que no es de una persona en
   // particular (ej. "toda la tienda"), se deja la identidad vacía y se usa
-  // el texto libre.
-  const [identidad, setIdentidad] = useState<IdentidadPersona | null>(null);
-  const [responsableLibre, setResponsableLibre] = useState("");
-  const [contexto, setContexto] = useState("");
+  // el texto libre. Si viene de "Leer desde imagen" (prefill), arranca ya
+  // con la persona y el contexto detectados.
+  const [identidad, setIdentidad] = useState<IdentidadPersona | null>(prefill?.identidad ?? null);
+  const [responsableLibre, setResponsableLibre] = useState(prefill?.responsableLibre ?? "");
+  const [contexto, setContexto] = useState(prefill?.contexto ?? "");
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [generatingIA, setGeneratingIA] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1710,6 +1804,12 @@ function PlanTrabajoModal({
           Describe la situación y con quién es el plan — la IA redacta el
           contenido y lo puedes ajustar antes de generar el PDF para imprimir.
         </p>
+
+        {prefill && (
+          <div className="mb-3 bg-brand/5 border border-brand/20 rounded-md px-3 py-2 text-[11.5px] text-brand">
+            Precargado desde la imagen que leíste — ajusta la persona o el contexto si hace falta.
+          </div>
+        )}
 
         <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-paper border border-line rounded-md text-sm">
           <span className="text-[10.5px] text-muted uppercase tracking-wider">Lo hace</span>
