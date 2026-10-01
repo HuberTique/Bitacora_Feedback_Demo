@@ -556,6 +556,7 @@ export default function FeedbacksPage() {
           roster={roster}
           jefatura={persona}
           onClose={() => setPlanTrabajo(false)}
+          onSaved={loadAll}
         />
       )}
 
@@ -1573,16 +1574,24 @@ function PlanTrabajoModal({
   roster,
   jefatura,
   onClose,
+  onSaved,
 }: {
   roster: RosterPublico[];
   jefatura: Persona;
   onClose: () => void;
+  onSaved: () => void;
 }) {
   // Stage 1: input mínimo. Stage 2: revisión y edición de la propuesta IA.
   const [stage, setStage] = useState<"input" | "revision">("input");
 
-  // Stage 1 state
-  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
+  // Stage 1 state. "Quien hace el plan" (jefatura) nunca se elige aquí: es
+  // siempre quien inició sesión — igual que en Feedbacks. A quién se le hace
+  // el plan se identifica por CM + nombre + cédula opcional, igual de
+  // estricto que un retardo/reconocimiento (con alta sobre la marcha si el
+  // CM no coincide con nadie). Para un plan que no es de una persona en
+  // particular (ej. "toda la tienda"), se deja la identidad vacía y se usa
+  // el texto libre.
+  const [identidad, setIdentidad] = useState<IdentidadPersona | null>(null);
   const [responsableLibre, setResponsableLibre] = useState("");
   const [contexto, setContexto] = useState("");
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
@@ -1600,22 +1609,18 @@ function PlanTrabajoModal({
   const [cargoJefe, setCargoJefe] = useState(jefatura.cargo || "");
   const [descargando, setDescargando] = useState(false);
 
-  function toggle(id: string) {
-    setSeleccionados((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const nombreIdentidad =
+    identidad?.tipo === "existente"
+      ? roster.find((p) => p.id === identidad.personaId)?.nombre ?? ""
+      : identidad?.tipo === "nueva"
+        ? identidad.nombre
+        : "";
 
   async function generarConIA() {
     setError(null);
-    const nombres = roster.filter((p) => seleccionados.has(p.id)).map((p) => p.nombre);
-    const responsables =
-      nombres.length > 0 ? nombres.join(", ") : responsableLibre.trim();
+    const responsables = nombreIdentidad || responsableLibre.trim();
     if (!responsables) {
-      setError("Elige al menos una persona o escribe a quién aplica (ej. Toda la tienda).");
+      setError("Identifica a la persona (CM y nombre) o escribe a quién aplica (ej. Toda la tienda).");
       return;
     }
     if (!contexto.trim()) {
@@ -1652,6 +1657,28 @@ function PlanTrabajoModal({
     setError(null);
     setDescargando(true);
     try {
+      // Primera vez que aparece esta persona — se da de alta aquí mismo,
+      // igual que al registrar una falta o un reconocimiento (no hay una
+      // pantalla de Personal aparte en este módulo). Si ya se descargó una
+      // vez (identidad pasó a "existente" abajo), no se repite el alta.
+      if (identidad?.tipo === "nueva") {
+        const { data: nueva, error: errPersona } = await supabase
+          .from("personal")
+          .insert({
+            nombre: identidad.nombre,
+            codigo: identidad.cm,
+            cedula: identidad.cedula,
+            cargo: "—",
+            rol: "asesor",
+            activo: true,
+          })
+          .select("id")
+          .single();
+        if (errPersona || !nueva) throw new Error(errPersona?.message ?? "No pude registrar a la persona.");
+        setIdentidad({ tipo: "existente", personaId: nueva.id });
+        onSaved();
+      }
+
       await generarPlanTrabajoPdf({
         responsables: responsablesFinal,
         planDeTrabajo: planTrabajo,
@@ -1680,34 +1707,23 @@ function PlanTrabajoModal({
     return (
       <Modal onClose={onClose} title="Nuevo Plan de Trabajo">
         <p className="text-muted text-[12.5px] mb-3">
-          Describe la situación y con quién(es) es el plan — la IA redacta el
+          Describe la situación y con quién es el plan — la IA redacta el
           contenido y lo puedes ajustar antes de generar el PDF para imprimir.
         </p>
 
+        <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-paper border border-line rounded-md text-sm">
+          <span className="text-[10.5px] text-muted uppercase tracking-wider">Lo hace</span>
+          <span className="font-medium">{jefatura.nombre}</span>
+          <span className="text-muted text-xs">— {jefatura.cargo || "jefatura"}</span>
+        </div>
+
         <div className="mb-3">
           <label className="block text-xs text-muted uppercase tracking-wider mb-1">
-            Responsable(s) del plan
+            Persona a la que se le hace el plan
           </label>
-          <div className="border border-line rounded-md bg-white max-h-32 overflow-y-auto p-1 text-sm mb-2">
-            {roster.map((p) => (
-              <label
-                key={p.id}
-                className="flex items-center gap-2 px-2 py-1 hover:bg-paper cursor-pointer rounded"
-              >
-                <input
-                  type="checkbox"
-                  checked={seleccionados.has(p.id)}
-                  onChange={() => toggle(p.id)}
-                />
-                <span>
-                  {p.nombre}{" "}
-                  <span className="text-muted text-xs">— {p.cargo}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <p className="text-[11.5px] text-muted mb-1">
-            O escribe a quién aplica si no es una persona en particular:
+          <PersonaBuscador roster={roster} value={identidad} onChange={setIdentidad} />
+          <p className="text-[11.5px] text-muted mt-1.5 mb-1">
+            O, si no es una persona en particular, escribe a quién aplica:
           </p>
           <input
             type="text"
