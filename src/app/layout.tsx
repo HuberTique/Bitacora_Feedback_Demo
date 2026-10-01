@@ -21,8 +21,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Bitácora Digital",
-  description: "Gestión de tienda — bitácora, feedbacks, horarios, presupuestos",
+  title: "Feedbacks y planes de trabajo",
+  description: "Registro de feedbacks, planes de trabajo y reconocimientos para equipos de tienda",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

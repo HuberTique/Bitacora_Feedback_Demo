@@ -10,8 +10,9 @@
 // Requiere ANTHROPIC_API_KEY como secret:
 //   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 
-import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { requireJefatura } from "../_shared/auth-jefatura.ts";
+import { tryParseJson } from "../_shared/parse-json.ts";
 
 // Snapshot pinneado (pre-4.6 generation): `claude-haiku-4-5` es el alias, pero
 // pinnear a la versión dated evita que un cambio de alias por parte de Anthropic
@@ -48,38 +49,13 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método no permitido." }, 405);
 
-  const url = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!url || !anonKey || !anthropicKey) {
-    return json(
-      { error: "Faltan variables de entorno (SUPABASE_URL, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY)." },
-      500,
-    );
+  if (!anthropicKey) {
+    return json({ error: "Falta la variable de entorno ANTHROPIC_API_KEY." }, 500);
   }
 
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return json({ error: "Falta encabezado Authorization." }, 401);
-
-  const supabaseAsUser = createClient(url, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabaseAsUser.auth.getUser();
-  if (userErr || !user) return json({ error: "Sesión inválida o expirada." }, 401);
-
-  const { data: caller } = await supabaseAsUser
-    .from("personal")
-    .select("rol")
-    .eq("auth_user_id", user.id)
-    .maybeSingle();
-  if (!caller || caller.rol !== "jefatura") {
-    return json({ error: "Solo la jefatura puede leer imágenes." }, 403);
-  }
+  const auth = await requireJefatura(req, "Solo la jefatura puede leer imágenes.");
+  if (!auth.ok) return auth.response;
 
   let body: Body;
   try {
@@ -140,7 +116,7 @@ Deno.serve(async (req: Request) => {
 
   // Parse JSON — múltiples estrategias en cascada por si el modelo agrega fences,
   // prefacio, texto trailing, o distintos tipos de espacio en blanco.
-  const parsed = tryParseRegistrosJson(text);
+  const parsed = tryParseJson(text) as { registros?: (RegistroTuple | Record<string, unknown>)[] } | null;
   if (!parsed) {
     return json(
       { error: `No pude interpretar la respuesta de la IA: ${text.slice(0, 400)}` },
@@ -184,38 +160,3 @@ Deno.serve(async (req: Request) => {
 
   return json({ registros, truncado, debug });
 });
-
-/**
- * Extrae { registros: [...] } de la respuesta cruda de la IA. Intenta:
- *  1) JSON.parse directo.
- *  2) Después de quitar fences de código markdown (```json ... ```).
- *  3) Buscando el primer '{' y el último '}' del texto.
- *  4) Buscando específicamente la palabra "registros" y extrayendo su valor.
- * Devuelve null si ninguna estrategia funciona.
- */
-function tryParseRegistrosJson(
-  text: string,
-): { registros?: (RegistroTuple | Record<string, unknown>)[] } | null {
-  const attempts: string[] = [];
-  attempts.push(text.trim());
-  attempts.push(
-    text
-      .replace(/```(?:json|JSON)?[\r\n]*/g, "")
-      .replace(/```/g, "")
-      .trim(),
-  );
-  // Del primer { al último }
-  const s = text.indexOf("{");
-  const e = text.lastIndexOf("}");
-  if (s >= 0 && e > s) attempts.push(text.slice(s, e + 1));
-
-  for (const candidate of attempts) {
-    try {
-      const p = JSON.parse(candidate);
-      if (p && typeof p === "object") return p;
-    } catch {
-      // sigue con la próxima estrategia
-    }
-  }
-  return null;
-}

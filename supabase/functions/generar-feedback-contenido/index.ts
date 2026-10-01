@@ -17,9 +17,10 @@
 // Así, lo máximo que puede hacer mal la IA es mencionar un número que no le
 // dimos — nunca inventar contenido legal.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { contextoEmpresa } from "../_shared/contexto-empresa.ts";
+import { requireJefatura } from "../_shared/auth-jefatura.ts";
+import { tryParseJson } from "../_shared/parse-json.ts";
 
 const MODEL = "claude-haiku-4-5-20251001";
 
@@ -67,34 +68,14 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método no permitido." }, 405);
 
-  const url = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!url || !anonKey || !anthropicKey) {
-    return json({ error: "Faltan variables de entorno." }, 500);
+  if (!anthropicKey) {
+    return json({ error: "Falta la variable de entorno ANTHROPIC_API_KEY." }, 500);
   }
 
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return json({ error: "Falta encabezado Authorization." }, 401);
-
-  const supabaseAsUser = createClient(url, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabaseAsUser.auth.getUser();
-  if (userErr || !user) return json({ error: "Sesión inválida o expirada." }, 401);
-
-  const { data: caller } = await supabaseAsUser
-    .from("personal")
-    .select("rol")
-    .eq("auth_user_id", user.id)
-    .maybeSingle();
-  if (!caller || caller.rol !== "jefatura") {
-    return json({ error: "Solo jefatura puede generar feedback." }, 403);
-  }
+  const auth = await requireJefatura(req, "Solo jefatura puede generar feedback.");
+  if (!auth.ok) return auth.response;
+  const { supabaseAsUser } = auth;
 
   let body: Body;
   try {
@@ -182,21 +163,3 @@ Genera el JSON solicitado.`;
     fundamento: tecnico ? String(parsed.fundamento ?? "") : "",
   });
 });
-
-function tryParseJson(text: string): Record<string, unknown> | null {
-  const attempts: string[] = [];
-  attempts.push(text.trim());
-  attempts.push(text.replace(/```(?:json|JSON)?[\r\n]*/g, "").replace(/```/g, "").trim());
-  const s = text.indexOf("{");
-  const e = text.lastIndexOf("}");
-  if (s >= 0 && e > s) attempts.push(text.slice(s, e + 1));
-  for (const c of attempts) {
-    try {
-      const p = JSON.parse(c);
-      if (p && typeof p === "object") return p as Record<string, unknown>;
-    } catch {
-      /* try next */
-    }
-  }
-  return null;
-}

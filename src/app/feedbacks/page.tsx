@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { useSession } from "@/lib/auth";
+import { useSession, signOut } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { PersonaBuscador, type IdentidadPersona } from "@/components/PersonaBuscador";
 import { ReglamentoMatrizTab } from "@/components/feedbacks/ReglamentoMatrizTab";
@@ -97,10 +97,18 @@ export default function FeedbacksPage() {
     setReconocimientos((cRes.data as Reconocimiento[] | null) ?? []);
   }, []);
 
+  // Este módulo no tiene vista para rol "asesor" (todo lo opera jefatura) —
+  // antes esto redirigía a "/feedbacks" (la misma página), dejando a esa
+  // cuenta varada en una pantalla en blanco en vez de sacarla de verdad.
+  const [sinAcceso, setSinAcceso] = useState(false);
   useEffect(() => {
     if (loading) return;
     if (!session) return router.replace("/login");
-    if (persona && persona.rol !== "jefatura") return router.replace("/feedbacks");
+    if (persona && persona.rol !== "jefatura") {
+      setSinAcceso(true);
+      signOut().then(() => router.replace("/login"));
+      return;
+    }
     if (persona?.rol === "jefatura") loadAll();
   }, [loading, session, persona, router, loadAll]);
 
@@ -146,6 +154,14 @@ export default function FeedbacksPage() {
   }, []);
   const activas = useMemo(() => filtered.filter((r) => r.fecha >= corteVigencia), [filtered, corteVigencia]);
   const historial = useMemo(() => filtered.filter((r) => r.fecha < corteVigencia), [filtered, corteVigencia]);
+
+  if (sinAcceso) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6 bg-paper text-sm text-muted">
+        Esta cuenta no tiene acceso a Feedbacks — cerrando sesión…
+      </main>
+    );
+  }
 
   if (loading || !persona || persona.rol !== "jefatura") {
     return (
@@ -905,7 +921,7 @@ function NuevoRetardoModal({
             Escalación calculada
           </div>
           <div className="mt-0.5">
-            Ocurrencia <strong>#{preview.ocurrencia}</strong> en los últimos 4 meses ·
+            Ocurrencia <strong>#{preview.ocurrencia}</strong> en los últimos 3 meses ·
             acción sugerida: <strong className="text-brand">{preview.accion}</strong>
           </div>
         </div>
