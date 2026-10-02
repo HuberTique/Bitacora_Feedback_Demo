@@ -301,11 +301,12 @@ export async function generarFeedbackPdf(datos: {
   drawSafe(page, datos.nombreJefe ?? jefatura.nombre, { x: 328, y: 71, size: 9, font });
   drawSafe(page, datos.cedulaJefe ?? jefatura.cedula ?? "—", { x: 325, y: 60, size: 9, font });
 
-  // Anexo de fundamento legal (modo técnico) — página(s) aparte, nunca
-  // sobre la plantilla oficial, para no arriesgar su diseño impreso.
-  const hayAjuste =
-    datos.accionAplicada != null && datos.accionSugerida != null && datos.accionAplicada !== datos.accionSugerida;
-  if ((datos.articulos && datos.articulos.length > 0) || hayAjuste) {
+  // Anexo de fundamento legal — página(s) aparte, nunca sobre la plantilla
+  // oficial, para no arriesgar su diseño impreso. Solo sale en redacción
+  // técnica (cuando hay artículos que citar). En redacción básica el PDF es
+  // únicamente el formato oficial: si se ajustó la medida, el ajuste y su
+  // justificación quedan guardados en el registro, pero no se imprimen.
+  if (datos.articulos && datos.articulos.length > 0) {
     dibujarAnexoLegal(pdf, font, bold, {
       fundamento: datos.fundamento ?? "",
       articulos: datos.articulos ?? [],
